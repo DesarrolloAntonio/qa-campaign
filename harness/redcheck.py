@@ -14,8 +14,11 @@ run at all (a build failure, a timeout, only skipped tests, or no report newer t
 `--break` could not be put back (the message says where the original is).
 
 `--break FILE OLD NEW` makes the break for this run and undoes it afterwards: OLD must appear exactly
-once in FILE, and the file is written back byte for byte and checked — after a timeout or Ctrl-C
-too. Repeat it for a break that spans several places. Breaking and restoring by hand is where it goes
+once in FILE, and the file is written back byte for byte and checked — after this script's own
+`--timeout`, after Ctrl-C, and after a SIGTERM or SIGHUP. A copy of every original is written **before
+the first byte changes** and its path is printed, so even a kill no handler survives (SIGKILL, or the
+tool that launched this one timing out) leaves the original somewhere. Give the caller a timeout above
+`--timeout`, or run this in the background: whoever kills this process wins. Repeat it for a break that spans several places. Breaking and restoring by hand is where it goes
 wrong: a shell loop that didn't split its file list left four files broken after a correct red, and
 only a failed `cp` gave it away (measured).
 
@@ -31,16 +34,34 @@ import argparse
 import glob
 import hashlib
 import os
+import signal
 import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
 
+def keep_path(path):
+    return os.path.join(tempfile.gettempdir(),
+                        "redcheck-" + hashlib.sha256(os.path.abspath(path).encode()).hexdigest()[:12]
+                        + "-" + os.path.basename(path))
+
+
 def apply_breaks(breaks):
     """Apply every --break; return {path: original bytes}. Refuses — putting back what it already
-    changed — unless each OLD is found exactly once."""
+    changed — unless each OLD is found exactly once.
+
+    The copy of each original is written BEFORE anything changes: no handler runs on SIGKILL, and the
+    tool that launched this one can time out and kill it — SIGTERM and SIGHUP left the source broken
+    with no copy anywhere (measured).
+    """
     originals = {}
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda *_: sys.exit(2))
+    for path, _, _ in breaks or []:
+        if os.path.exists(keep_path(path)):
+            print(f"note: a copy of {path} from an earlier run is still at {keep_path(path)} — a break may "
+                  "have been left in place; compare them before trusting this run.", file=sys.stderr)
     try:
         for path, old, new in breaks or []:
             if old == new:
@@ -51,7 +72,11 @@ def apply_breaks(breaks):
             n = data.count(old.encode())
             if n != 1:
                 refuse(f"--break {path}: OLD appears {n} times, not once — make it unique")
-            originals.setdefault(path, data)
+            if path not in originals:
+                originals[path] = data
+                with open(keep_path(path), "wb") as fh:
+                    fh.write(data)
+                print(f"break: {path} — original kept at {keep_path(path)}", file=sys.stderr)
             with open(path, "wb") as fh:
                 fh.write(data.replace(old.encode(), new.encode(), 1))
     except BaseException:
@@ -71,9 +96,7 @@ def restore(originals):
     original is kept in the temp folder until that check passes."""
     failed = []
     for path, data in originals.items():
-        keep = os.path.join(tempfile.gettempdir(), "redcheck-" + hashlib.sha256(path.encode()).hexdigest()[:12] + "-" + os.path.basename(path))
-        with open(keep, "wb") as fh:
-            fh.write(data)
+        keep = keep_path(path)
         try:
             with open(path, "wb") as fh:
                 fh.write(data)

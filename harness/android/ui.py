@@ -45,8 +45,10 @@ once `devices` lists anything, refuses any device that is not on the list.
 import argparse
 import datetime
 import hashlib
+import html
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -802,9 +804,20 @@ def show_keyboard():
 
 def type_text(text, expect=None):
     check_expected(expect)
-    # `input text` chokes on spaces and several symbols: escape them one by one.
+    # What `input text` cannot do, said out loud instead of printing "typed" (R8): a newline is a
+    # command separator on the device's shell, and non-ASCII never arrives — `input text "Grüße"`
+    # types "Gr" and drops the rest, which reads as an app that eats characters.
+    bad = [name for ch, name in ((chr(10), "a newline"), (chr(13), "a carriage return"), (chr(9), "a tab")) if ch in text]
+    if bad:
+        raise SystemExit(f"`type` cannot send {' or '.join(bad)} — send the lines one at a time, "
+                         "with `key ENTER` between them")
+    if any(ord(c) > 127 for c in text):
+        raise SystemExit(f"`type` cannot send non-ASCII text ({text!r}): `input text` drops it. "
+                         "Paste it through the clipboard (`am broadcast` in your project's script) or use ASCII in the fixture")
+    # `input text` chokes on spaces and several symbols: escape them one by one, then quote the whole
+    # argument — it is re-parsed by the device's shell after adb joins the arguments with spaces.
     esc = re.sub(r"([\\\"'`$&|;<>()*?!#~])", r"\\\1", text).replace(" ", "%s")
-    shell("input", "text", esc)
+    shell("input", "text", shlex.quote(esc))
     print(f"typed: {text!r}")
 
 
@@ -1248,9 +1261,15 @@ def hide_secrets_in_text(text, inline=False):
         keyed(re.compile(r'"(?P<key>[^"]+)"\s*:\s*(?P<val>"(?:[^"\\]|\\.)*"|[^,}\]\s]+)'), "val"),
         # password=…   /   token: …
         keyed(re.compile(r'^(?P<ind>\s*)(?P<key>[\w.\-]+)\s*[=:]\s*(?P<val>.+)$', re.M), "val"),
-        # …inside a log line: nfcId=04 a1 b2 c3, token: abc — a hex id with spaces is one value
-        keyed(re.compile(r'(?P<key>\b[A-Za-z][\w.\-]*)\s*[=:]\s*(?P<val>(?:[0-9A-Fa-f]{2}(?:[ :][0-9A-Fa-f]{2})+)|[^\s,;}\]"\'<]+)'), "val"),
+        # …inside a log line: nfcId=04 a1 b2 c3, token: abc — a hex id with spaces is one value.
+        # `&` ends a value too: a form body is `grant_type=refresh&refresh_token=abc` on one line.
+        keyed(re.compile(r'(?P<key>\b[A-Za-z][\w.\-]*)\s*[=:]\s*(?P<val>(?:[0-9A-Fa-f]{2}(?:[ :][0-9A-Fa-f]{2})+)|[^\s,;&}\]"\'<]+)'), "val"),
     ]
+    # An HTTP auth header: the credential follows a scheme word, so the key/value rules hide the
+    # scheme and print the credential (measured on `Authorization: Token <40 hex>`, which no shape
+    # rule catches). Everything after the colon goes.
+    text = re.sub(r'(?i)\b((?:proxy-)?authorization|x-api-key|cookie|set-cookie)(\s*[:=]\s*)\S[^\r\n]*',
+                  lambda m: m.group(1) + m.group(2) + HIDDEN, text)
     # JSON stored INSIDE a string — {"user": "{\\"sessionId\\":\\"…\\"}"}, a common Multiplatform
     # Settings / SharedPreferences shape: the outer key "user" looks harmless and the session id inside
     # printed (measured). Same rules on the escaped form, and tokens hidden by their SHAPE too.
@@ -1362,15 +1381,27 @@ def query(path, sql):
     finally:
         con.close()
     secret = [looks_secret(c) for c in cols]
+    # A settings table is `(key, value)`: no column name is secret, and the secret sits in the value
+    # of the row whose key says so — `password | hunter2` printed in full (measured).
+    key_col = next((i for i, c in enumerate(cols) if c.lower() in
+                    ("key", "name", "pref_key", "_key", "setting", "property", "field")), None)
+    val_cols = [i for i, c in enumerate(cols) if c.lower() in ("value", "val", "_value", "data", "content")]
+    if key_col is not None and val_cols:
+        print(f"(a key/value table: the value is hidden on any row whose {cols[key_col]} looks like a secret)",
+              file=sys.stderr)
     if any(secret):
         print(f"(values hidden in: {', '.join(c for c, s in zip(cols, secret) if s)} — an empty one shows as empty)",
               file=sys.stderr)
     if cols:
         print(" | ".join(cols))
     for r in rows:
+        row_secret = list(secret)
+        if key_col is not None and val_cols and looks_secret(str(r[key_col] or "")):
+            for i in val_cols:
+                row_secret[i] = True
         print(" | ".join(
             "" if v is None or v == "" else HIDDEN if hide else hide_secrets_in_text(str(v))
-            for v, hide in zip(r, secret)
+            for v, hide in zip(r, row_secret)
         ))
     return rows
 
@@ -1413,7 +1444,10 @@ def app_file(alias, pkg, out=None):
             f"{rel} is binary ({len(data)} bytes), so it is not printed. Copy it with --out and decode it with "
             "the project's own reader — which must hide secrets too (R11)."
         )
-    print(hide_secrets_in_text(text))
+    # SharedPreferences writes a stored JSON object with its quotes escaped as `&quot;`, so the
+    # session inside an innocent key (`user`, `profile`) matched no rule and printed whole
+    # (measured). The entities are expanded before hiding, and the file is printed that way.
+    print(hide_secrets_in_text(html.unescape(text)))
 
 
 def mentions_app(line, pkg):
@@ -1815,7 +1849,11 @@ def main():
         again = f"; the system started it again as pid {after[0]} (a service or job) — still a restore" if after else ""
         print(f"killed {a.pkg} (pid {before[0]}, {how}) in the background, saved state kept{again} — launch again to test the restore")
     elif a.cmd == "open":
-        out = shell("am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", a.url, a.pkg, check=False, with_stderr=True)
+        # Quoted: adb joins the arguments with spaces and the device's shell re-parses them, so a
+        # deep link with `?a=1&b=2` was cut at the `&`, the rest ran as a command, and `open` still
+        # printed "opened" (measured).
+        out = shell("am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", shlex.quote(a.url), a.pkg,
+                    check=False, with_stderr=True)
         if "Error" in out or "does not exist" in out or "Unable to resolve" in out:
             raise SystemExit(f"could not open {a.url!r} in {a.pkg}: {out.strip()}")
         print(f"opened {a.url} in {a.pkg}")
