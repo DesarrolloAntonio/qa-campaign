@@ -330,7 +330,9 @@ def dump(retries=4, windows=False):
 
             walk(root, 0, None)
             if windows:
-                nodes = [n for n in nodes if not n.pkg.startswith(SYSTEM_UI_PKGS)]
+                # Only the app's own windows: the keyboard carries "Delete" and "Search" descriptions,
+                # and matching them would make `find` say a control is there while `assert` says it is not.
+                nodes = [n for n in nodes if is_app(n.pkg)]
             return nodes
         last = out.strip()
         time.sleep(0.8 * (i + 1))
@@ -567,6 +569,8 @@ def tap(sel, index=None, long=False, expect=None, within=None):
 
 def find_elsewhere(sel, within=None):
     """The same selector in the app's other windows (a dropdown, a popup). Says so when it hits."""
+    if not DEFAULT_PKG and not APP_PKG_PREFIX:
+        return []          # without a package we cannot tell the app's windows from anyone else's
     found = find_in(sel, within, dump(windows=True))
     if found:
         print(f"note: {sel!r} is in another window of the app (a popup or dropdown), not in the focused one",
@@ -629,7 +633,7 @@ def watch(seconds, sel=None):
     lives ~2 s and one dump takes ~1.5 s: a single read missed "Session expired" as often as not, and was
     reported as "no message at all" twice (measured). With a selector, it stops as soon as that appears.
     """
-    seen, t0 = {}, time.time()
+    seen, t0, hit = {}, time.time(), False
     while time.time() - t0 < seconds:
         nodes = dump()
         now = time.time() - t0
@@ -640,10 +644,13 @@ def watch(seconds, sel=None):
                 seen[lab] = (first, now)
         if sel and find(sel, nodes):
             print(f"appeared: {sel} ({now:.1f}s)")
+            hit = True
             break
     for lab, (first, last) in sorted(seen.items(), key=lambda kv: kv[1][0]):
         print(f"{first:6.1f}s–{last:5.1f}s  {lab[:100]}")
-    if sel and not any(matches_label(sel, lab) for lab in seen):
+    if sel and not hit:
+        # It used to re-check the labels it collected, which cannot answer `id=` or `class=`
+        # selectors: `watch --until "id=…"` printed "appeared" and then exited 1 (measured).
         raise SystemExit(f"{sel!r} never appeared in {seconds}s")
 
 
@@ -681,7 +688,7 @@ def app_log(pkg, lines=300, grep=None):
     pids = shell("pidof", pkg, check=False).split()
     if not pids:
         raise SystemExit(f"{pkg} is not running — launch it first: `log` reads the running process only")
-    out = adb("logcat", f"--pid={pids[0]}", "-t", str(lines), check=False)
+    out = adb("logcat", f"--pid={pids[0]}", "-t", str(lines))
     shown_any = False
     for line in out.splitlines():
         if grep and grep.lower() not in line.lower():
@@ -1594,6 +1601,32 @@ def claim_device(serial):
         json.dump({"project": mine, "at": time.time()}, fh)
 
 
+def release_locks(force=False):
+    """Free this project's claims without needing a device.
+
+    Keyed by the lock's `project`, not by a serial: the emulator is usually gone by the time a
+    campaign stops, and `release` then refused with "no device reachable" (audit). `--force` frees
+    the locks of other projects too — only when that campaign is really over.
+    """
+    mine, freed = project_name(), []
+    for name in sorted(os.listdir(LOCK_DIR)) if os.path.isdir(LOCK_DIR) else []:
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(LOCK_DIR, name)
+        try:
+            with open(path) as fh:
+                lock = json.load(fh)
+        except (OSError, ValueError):
+            lock = {}
+        owner = lock.get("project", "?")
+        if owner != mine and not force:
+            print(f"{name[:-5]}: claimed by {owner}, left alone — `release --force` only if that campaign is over")
+            continue
+        os.remove(path)
+        freed.append(f"{name[:-5]} (was {owner})")
+    print("released: " + ", ".join(freed) if freed else "nothing to release: this project holds no claim")
+
+
 def release_device(serial, force=False):
     key = device_key(serial)
     lock = read_lock(key)
@@ -1702,6 +1735,12 @@ def main():
                            help="include other processes (the harness itself, the system…)")
     sub.add_parser("clear-crashes")
     for name in sub.choices:
+        for flag, dest in (("--device", "device"), ("--serial", "serial"), ("--pkg", "pkg"),
+                           ("--allow-device-change", "allow_device_change")):
+            if flag == "--allow-device-change":
+                sub.choices[name].add_argument(flag, dest=dest, action="store_true", default=argparse.SUPPRESS)
+            else:
+                sub.choices[name].add_argument(flag, dest=dest, default=argparse.SUPPRESS)
         # On every subcommand, and on the parser itself, so it is accepted before OR after the command:
         # `--any-app` was refused in both places on the commands that didn't define it (measured), and a
         # campaign fell back to raw `adb shell input tap`. SUPPRESS keeps a subcommand's default from
@@ -1736,10 +1775,21 @@ def main():
         return
     global CLAIM
     CLAIM = a.cmd != "release"
-    require_device()
     if a.cmd == "release":
-        release_device(subprocess.run([ADB, "get-serialno"], capture_output=True, text=True).stdout.strip(), a.force)
+        # No device needed: a campaign that has already shut its emulator down still has to free the
+        # claim, and `release` used to refuse with "no device reachable" (audit).
+        release_locks(a.force)
         return
+    require_device()
+    if CONFIG_PATH is None:
+        raise SystemExit(
+            "no qa.config.json found (looked from " + os.getcwd() + " upwards and in $QA_CONFIG). Without it "
+            "there is no package, no device allow-list and no front-app guard, so this would drive whatever "
+            "device adb picks. Copy qa.config.example.json into the project and fill it in (SKILL.md §2.1 step 6). "
+            "`avds`, `serial` and `release` work without one."
+        )
+    if not DEVICES:
+        print(f"note: no `devices` allow-list in {CONFIG_PATH}: driving whatever adb picks", file=sys.stderr)
     changes = a.cmd in DEVICE_CHANGING or (a.cmd == "claim" and a.changes_device)
     if changes and MANAGED and not (a.allow_device_change or os.environ.get("QA_ALLOW_DEVICE_CHANGE")):
         serial = os.environ.get("ANDROID_SERIAL") or subprocess.run([ADB, "get-serialno"], capture_output=True, text=True).stdout.strip()
@@ -1800,7 +1850,9 @@ def main():
     elif a.cmd == "clear":
         clear_field(a.sel, a.n, a.expect)
     elif a.cmd == "key":
-        shell("input", "keyevent", a.key if a.key.startswith("KEYCODE_") else "KEYCODE_" + a.key)
+        # `key enter` sent KEYCODE_enter, which the device ignores in silence (audit).
+        name = a.key.upper()
+        shell("input", "keyevent", name if name.startswith("KEYCODE_") else "KEYCODE_" + name)
     elif a.cmd == "show-keyboard":
         show_keyboard()
     elif a.cmd == "hide-keyboard":
@@ -1820,7 +1872,15 @@ def main():
     elif a.cmd == "installed":
         installed(a.pkg, a.apk)
     elif a.cmd == "launch":
-        shell("monkey", "-p", a.pkg, "-c", "android.intent.category.LAUNCHER", "1", check=False)
+        # `check=False` swallowed monkey's "No activities found to run" and launch said nothing at all
+        # on a package that isn't installed (measured by the audit). Read the result back, like `back`.
+        shell("monkey", "-p", a.pkg, "-c", "android.intent.category.LAUNCHER", "1")
+        time.sleep(1.5)
+        front = app_in_front(a.pkg)
+        if not is_app(front):
+            raise SystemExit(f"`launch` did not bring {a.pkg} to the front: {front or 'nothing'} is there. "
+                             "Installed? `installed` says.")
+        print(f"launched {a.pkg}")
     elif a.cmd == "stop":
         shell("am", "force-stop", a.pkg)
     elif a.cmd == "kill":
@@ -1879,13 +1939,13 @@ def main():
     elif a.cmd == "file":
         app_file(a.alias, a.pkg, a.out)
     elif a.cmd == "clear-crashes":
-        adb("logcat", "-b", "crash", "-b", "events", "-c", check=False)
+        adb("logcat", "-b", "crash", "-b", "events", "-c")
         print("crash and event buffers cleared")
     elif a.cmd == "crashes":
         # THE APP's only. The crash buffer also collects the harness's own — two concurrent
         # `uiautomator dump` calls give "UiAutomationService … already registered!" — and that used
         # to be reported as if the app had crashed. `--all` shows the whole buffer.
-        raw = adb("logcat", "-b", "crash", "-d", check=False).strip()
+        raw = adb("logcat", "-b", "crash", "-d").strip()
         if a.all:
             crash = raw
         else:
@@ -1902,7 +1962,7 @@ def main():
             ).strip()
         # /data/anr needs root; ANRs show up in the events buffer instead (`am_anr`).
         anr = "\n".join(
-            l for l in adb("logcat", "-b", "events", "-d", check=False).splitlines()
+            l for l in adb("logcat", "-b", "events", "-d").splitlines()
             if "am_anr" in l and (a.all or mentions_app(l, a.pkg))
         )
         print(crash or "0 crashes")
