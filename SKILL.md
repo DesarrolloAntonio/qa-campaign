@@ -731,8 +731,9 @@ tools take four, and a second round gets skipped:
    accept them as part of the baseline — because otherwise the campaign's diff mixes with
    someone's work in progress, a finding can come from a half-done change instead of the product,
    and reverting a fix to see its test red (R6) touches code that was never the campaign's. Then,
-   set up the work where step 1's answer said — `qa/<date>` from the current commit unless the human
-   asked to stay on the branch that is checked out — and record that commit as **Build at start** in
+   set up the work where step 1's answer said — **a branch of its own, `qa/<date>` from the current
+   commit, is the default when the human has no preference**; only stay on the branch that is checked
+   out when they ask for it — and record that commit as **Build at start** in
    `CAMPAIGN.md`. Every gate's diff is then that process and nothing else.
 3. **Ask what already exists before building anything.** One question, four parts:
    - **devices** — which emulators, simulators or phones are for testing (step 5);

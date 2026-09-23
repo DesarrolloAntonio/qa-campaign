@@ -26,10 +26,28 @@ each of which earned its place on a real campaign:
   a false positive costs more than a miss, because it trains you to ignore the tool. And it must
   never print a silent all-clear.
 
+## Before you run it
+
+A campaign is not a read-only audit. It **installs and drives builds on real devices**, **signs in and
+writes to a server**, **changes your source** (fixes, tests, and deliberate breaks it undoes after),
+and **deletes the test data it created**. It asks before leaving the ground agreed at setup — that is
+R2 — but the ground is what you tell it, and an agent can still get it wrong.
+
+So, every time:
+
+- **on a branch of its own**, with a clean tree before it starts (it will ask; say yes to the branch);
+- **a test server and test accounts**, never a personal or production account. No disposable server?
+  R10 says what to do instead — and say out loud which data must not be touched;
+- **the devices you name and no others**: list them in `qa.config.json` and the scripts refuse the
+  rest, so nothing lands on a work or personal phone;
+- **a backup of anything you could not lose**, on the server as well as the device.
+
+It is a tool that acts. **You run it at your own risk** — see the licence: no warranty of any kind.
+
 ## Install
 
 ```bash
-git clone https://github.com/<you>/qa-campaign ~/.claude/skills/qa-campaign
+git clone https://github.com/DesarrolloAntonio/qa-campaign ~/.claude/skills/qa-campaign
 ```
 
 Then, in the project you want to test:
@@ -120,4 +138,5 @@ skill's rules came from those lines.
 
 ## Licence
 
-MIT.
+MIT — and, in plain words: **no warranty**. It comes as it is; what it does to your code, your
+devices, your server and your data is your responsibility.
