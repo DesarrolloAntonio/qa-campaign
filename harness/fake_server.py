@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""A fake server for the error paths (SKILL.md R10: never break the real server to see an error).
+
+Answers every request with what you tell it, and prints each request it got — method, path, and the
+body — so the run report can show what the app actually sent.
+
+    fake_server.py --port 18099 --status 500
+    fake_server.py --port 18099 --status 401 --body '{"ok":false,"message":"unauthorized"}'
+    fake_server.py --port 18099 --status 502 --body '<html>Bad gateway</html>' --type text/html
+    fake_server.py --port 18099 --status 200 --delay 40          # a server that answers too late
+    fake_server.py --port 18099 --routes routes.json             # {"GET /api/items": {"status": 200, "body": "[]"}}
+
+    fake_server.py --port 18099 --status 200 --body '{"ok":true}' --header "Set-Cookie: sessionid=QA_fake"
+
+Reaching it from an emulator: `adb reverse tcp:<port> tcp:<port>` and http://127.0.0.1:<port> in the
+app. http://10.0.2.2:<port> reaches the computer from the device's SHELL, but on API 37 the app's own
+uid timed out on it (measured) — check with `net.sh reach`, which asks as the app. A physical phone
+needs --host 0.0.0.0 and the computer's address.
+
+Signing in against it: a cookie session needs the `Set-Cookie` header (--header, or "headers" in a
+route). An account switch as a fake account (SKILL.md R11) also needs every screen it visits to get a
+route — empty lists, not errors — or the errors hide what the previous account left behind.
+
+Why it exists: Python's own `HTTPServer` looks the host up in DNS (`getfqdn`) before listening; on a
+Mac that hung, the port sat in CLOSED, and it looked exactly like a blocked sandbox (measured).
+"""
+import argparse
+import json
+import socketserver
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class NoLookupServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer.server_bind() calls socket.getfqdn(): the hang. Bind without it.
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name, self.server_port = host, port
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, required=True)
+    p.add_argument("--status", type=int, default=500)
+    p.add_argument("--body", default="")
+    p.add_argument("--type", default="application/json")
+    p.add_argument("--delay", type=float, default=0, help="seconds before answering")
+    p.add_argument("--header", action="append", default=[], help='"Name: value", repeatable — e.g. a Set-Cookie')
+    p.add_argument("--routes", help='JSON file: {"METHOD /path": {"status": …, "body": …, "type": …, "delay": …, "headers": {…}}}')
+    a = p.parse_args()
+    routes = json.load(open(a.routes)) if a.routes else {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def answer(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            sent = self.rfile.read(length) if length else b""
+            route = routes.get(f"{self.command} {self.path.split('?')[0]}", {})
+            status, body = route.get("status", a.status), route.get("body", a.body)
+            kind, delay = route.get("type", a.type), route.get("delay", a.delay)
+            print(f"{time.strftime('%H:%M:%S')} {self.command} {self.path} → {status}"
+                  + (f"  body: {sent[:300].decode(errors='replace')}" if sent else ""), flush=True)
+            if delay:
+                time.sleep(delay)
+            raw = body.encode()
+            self.send_response(status)
+            headers = dict(h.split(":", 1) for h in a.header)
+            headers.update(route.get("headers", {}))
+            for name, value in headers.items():
+                self.send_header(name.strip(), str(value).strip())
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = answer
+
+        def log_message(self, *args):
+            pass
+
+    server = NoLookupServer((a.host, a.port), Handler)
+    print(f"fake server on http://{a.host}:{a.port} — every request gets {a.status} unless a route says otherwise", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
