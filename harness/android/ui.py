@@ -1748,6 +1748,17 @@ def main():
         sub.choices[name].add_argument("--any-app", action="store_true", default=argparse.SUPPRESS,
                                        help="allow input when another app is in front (a share sheet, a browser)")
     a = p.parse_args()
+    if CONFIG_PATH is None and a.cmd not in ("avds", "serial", "release"):
+        # Before any adb call, so nothing is claimed or driven: without a config there is no package,
+        # no device allow-list and no front-app guard, and the harness would drive whatever adb picks
+        # (audit). `avds`, `serial` and `release` are the three that make sense without one.
+        raise SystemExit(
+            f"no qa.config.json found (looked from {os.getcwd()} upwards and in $QA_CONFIG), so `{a.cmd}` would "
+            "drive whatever device adb picks, with no package and no allow-list. Copy qa.config.example.json "
+            "into the project and fill it in (SKILL.md §2.1 step 6)."
+        )
+    if CONFIG_PATH and not DEVICES and a.cmd not in ("avds", "serial", "release"):
+        print(f"note: no `devices` allow-list in {CONFIG_PATH}: driving whatever adb picks", file=sys.stderr)
     if a.device:
         if a.device not in DEVICES:
             raise SystemExit(f"unknown device alias {a.device!r}; `devices` in qa.config.json has: {', '.join(sorted(DEVICES)) or 'nothing'}")
@@ -1781,15 +1792,6 @@ def main():
         release_locks(a.force)
         return
     require_device()
-    if CONFIG_PATH is None:
-        raise SystemExit(
-            "no qa.config.json found (looked from " + os.getcwd() + " upwards and in $QA_CONFIG). Without it "
-            "there is no package, no device allow-list and no front-app guard, so this would drive whatever "
-            "device adb picks. Copy qa.config.example.json into the project and fill it in (SKILL.md §2.1 step 6). "
-            "`avds`, `serial` and `release` work without one."
-        )
-    if not DEVICES:
-        print(f"note: no `devices` allow-list in {CONFIG_PATH}: driving whatever adb picks", file=sys.stderr)
     changes = a.cmd in DEVICE_CHANGING or (a.cmd == "claim" and a.changes_device)
     if changes and MANAGED and not (a.allow_device_change or os.environ.get("QA_ALLOW_DEVICE_CHANGE")):
         serial = os.environ.get("ANDROID_SERIAL") or subprocess.run([ADB, "get-serialno"], capture_output=True, text=True).stdout.strip()
