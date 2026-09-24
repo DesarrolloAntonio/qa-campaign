@@ -228,7 +228,9 @@ case "${1:-status}" in
         # "no validated network" is also what adb losing the device looks like — which is exactly what
         # airplane mode does to a phone connected over Wi-Fi (audit). Read the setting back to tell
         # the two apart instead of printing "offline" either way.
-        mode=$("$ADB" shell settings get global airplane_mode_on 2>/dev/null | tr -d '\r')
+        # `|| mode=""`: with `set -e -o pipefail` a failed read would end the script right here,
+        # silently — which is the very case this is here to report (measured with a stub adb).
+        mode=$("$ADB" shell settings get global airplane_mode_on 2>/dev/null | tr -d '\r') || mode=""
         case "$mode" in
           1) echo "offline (airplane_mode_on=1)"; exit 0 ;;
           "") echo "⚠️ adb lost the device after enabling airplane mode — connected over Wi-Fi? Nothing can be verified from here." >&2; exit 1 ;;
