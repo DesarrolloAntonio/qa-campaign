@@ -173,7 +173,9 @@ product **lacks**. That is R4.
 
 R3 is **structurally blind to missing features**: a feature that doesn't exist leaves nothing to
 enumerate. So run four sweeps — **once, for the whole product, at setup** (§2.1), filing each finding
-under its module. Before writing a module's catalogue, re-read that module's findings; re-run the
+under its module. *The whole product* is the app under test plus the shared modules it depends on —
+in a repository of several standalone apps, not the whole repository (a sweep run repo-wide returned
+391 hits, half of them another app's; audit). Before writing a module's catalogue, re-read that module's findings; re-run the
 sweeps for it only if its code changed since. Each sweep is a **grep for candidates followed by a
 fixed discard list** — reproducible, but not judgement-free, and the discard list is part of the
 rule:
@@ -181,9 +183,9 @@ rule:
 | # | Sweep | How | Discard | Catches |
 |---|---|---|---|---|
 | **S1** | Data held but never shown | For each field of your domain models / UI state, grep for references in the UI layer. Zero references = candidate. Also **values the screen computes and decides with but never states** — today's date on a calendar, the one-year window it asks the server for — which no grep of fields finds (measured). | fields that are ids, timestamps, or sync bookkeeping; credentials and session tokens (never shown by design) | A settings screen that never says which server or user you're connected to |
-| **S2** | Dead control | Empty or TODO handlers, *including* empty lambdas passed down as arguments: Compose `grep -rnE 'onClick *= *\{ *\}|\w+ *= *\{ *\}|/\* *TODO' --include='*.kt'`; web `grep -rnE '=\{\(\) *=> *\{\}\}|href="#"' --include='*.tsx'`; SwiftUI `grep -rn 'action: {}' --include='*.swift'`. Then routes: every `navigate(x)` has a matching destination. | previews, read-only chips, disabled placeholders; an empty **default value** in a function's signature (`onClick: () -> Unit = {}`) — for those, follow the callers: a candidate only if a real screen leaves it empty | "Privacy Policy" and "Help" buttons that do nothing (a store blocker) |
+| **S2** | Dead control | Empty or TODO handlers, *including* empty lambdas passed down as arguments: Compose `grep -rnE 'onClick *= *\{ *\}|\w+ *= *\{ *\}|/\* *TODO' --include='*.kt'`; web `grep -rnE '=\{\(\) *=> *\{\}\}|href="#"' --include='*.tsx'`; SwiftUI `grep -rn 'action: {}' --include='*.swift'`. Then routes: every `navigate(x)` has a matching destination. | previews and showcase modules — **filter them mechanically**, they are most of the hits: a candidate inside a `@Preview` function is not a dead control (walk back from the enclosing `fun` through its annotation lines); read-only chips, disabled placeholders; an empty **default value** in a function's signature (`onClick: () -> Unit = {}`) — for those, follow the callers: a candidate only if a real screen leaves it empty | "Privacy Policy" and "Help" buttons that do nothing (a store blocker) |
 | **S3** | Expected absence | **Enumerate REF (R5), not your imagination**: walk the reference implementation's navigation, settings and menus and write down every feature name; grep your code for each term; zero files = absent. | features REF has that are out of scope *by written decision* — **while the code still agrees**. A written decision the code has since contradicted ("out of scope" in the README, built by a later commit) is not a discard: it goes to the queue as "which decision stands" | No quota, no licences, no changelog, no clear-cache |
-| **S4** | Stuck when something fails | Controls that work when everything goes right and never recover when something goes wrong. Find where work starts — a flag set to true, a `Loading` state, a button disabled — and check each is undone on the **failure** path too, not only on success. Then error handlers that are empty or only log, searched **across lines**. Commands below the table. Drive each candidate with the network cut or the server stopped. | undone in a `finally`, or by one state that covers both outcomes | A spinner nothing ever clears after the server says no; a save button that stays disabled |
+| **S4** | Stuck when something fails | Controls that work when everything goes right and never recover when something goes wrong. Find where work starts — a flag set to true, a `Loading` state, a button disabled — and check each is undone on the **failure** path too, not only on success. Then error handlers that are empty or only log, searched **across lines**. Commands below the table. Drive each candidate with the network cut or the server stopped. | undone in a `finally`, or by one state that covers both outcomes; clean-up, close and stop handlers with no UI behind them | A spinner nothing ever clears after the server says no; a save button that stays disabled |
 
 The S4 searches, Kotlin first. Each misses something if you narrow it: `ing *= *true` alone missed
 `_isRefreshing.value = true` and sealed `Loading` states, and a one-line `catch {}` grep found **0**
@@ -191,11 +193,18 @@ on a codebase with 16 empty or log-only handlers, because formatted code puts th
 line (measured):
 
 ```bash
-# where work starts — then check each one is undone when it fails
-grep -rnE 'ing *= *true|\.value *= *true|Loading\b|enabled *= *!' --include='*.kt' .
+# where work starts, PRECISION first: the names that mean "something is running"
+grep -rnE '(isLoading|isRefreshing|isSyncing|isSaving|isSending|inProgress|_loading|_refreshing)[A-Za-z]* *(\.value)? *= *true' --include='*.kt' .
+# …then RECALL, when the precise list comes back thin — noisier by an order of magnitude
+grep -rnE 'ing *= *true|\.value *= *true|enabled *= *!' --include='*.kt' .
+grep -rnE '(emit|value|update) *[({].*Loading' --include='*.kt' .          # sealed Loading states
 # empty or log-only error handlers, across lines (-U lets a match span lines)
-rg -U -n 'catch\s*\([^)]*\)\s*\{\s*((Log\.\w+|println|Timber\.\w+|logger\.\w+)\([^)]*\)\s*)?\}' --glob '*.kt' .
+# -c counts LINES, not matches: `rg -U -n … | wc -l` said 128 where there were 44 (audit). Count the
+# `file:line:` prefixes instead, and read them — the list is meant to be read, not totalled.
+rg -U -n 'catch\s*\([^)]*\)\s*\{\s*((//[^\n]*|/\*.*?\*/|(Log\.\w+|println|Timber\.\w+|logger\.\w+|\w+\.printStackTrace)\s*\([^()]*(\([^()]*\))?[^()]*\))\s*)*\}' --glob '*.kt' .
 rg -U -n 'onFailure\s*\{\s*\}' --glob '*.kt' .                                   # Kotlin Result
+rg -n 'runCatching\b' --glob '*.kt' .        # then check each one's Result is consumed:
+                                             # onFailure|getOr|exceptionOrNull|fold in the lines after it
 rg -U -n 'catch\s*\{\s*\}' --glob '*.swift' .                                     # Swift
 rg -U -n '\.catch\(\s*\(\s*\w*\s*\)\s*=>\s*\{\s*\}\s*\)' --glob '*.{ts,tsx,js}' .  # JS
 # no ripgrep: perl -0777 reads a whole file at once, so the same pattern can span lines
