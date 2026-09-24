@@ -247,7 +247,7 @@ PY
 }
 
 reach() {
-  local url fields scheme host port path layers out status rc
+  local url fields scheme host port path layers out status rc ok
   url="$(server_url "$1")"
   [ -n "$url" ] || { echo "reach: no url given and no server.url in qa.config.json" >&2; return 2; }
   fields=$(parse_url "$url") || return 2
@@ -259,11 +259,34 @@ EOF
     return 2
   fi
   as_the_app
-  if ! tcp_probe "$host" "$port"; then
+  ok=0
+  if tcp_probe "$host" "$port"; then
+    ok=1
+  elif [ -n "$PREFIX" ] && "$ADB" shell "nc -w 5 -q 1 $host $port </dev/null" >/dev/null 2>&1; then
+    # The shell reaches it and the app does not. That is either the app being blocked — or `run-as`
+    # being unable to resolve ANY name, which is not the same thing at all. Measured on an API 37
+    # emulator during a campaign: a control name failed from `run-as` exactly like the test server,
+    # the shell resolved both, and the app had been talking to the server the whole time — the tool
+    # turned "I could not check" into "the app cannot reach it" and sent the campaign after its own
+    # defect (R8). So ask the control before accusing anyone.
+    case "$PROBE_OUT" in
+      *"No address associated"*|*"unknown host"*|*"Name or service not known"*|*"name resolution"*)
+        if ! "$ADB" shell "${PREFIX}nc -w 5 -q 1 ${QA_CONTROL_HOST:-android.com} 80 </dev/null" >/dev/null 2>&1; then
+          echo "note: NOT PROVEN as the app — \`run-as $PKG\` resolves no name on this device (the control" >&2
+          echo "   ${QA_CONTROL_HOST:-android.com} fails the same way), so nothing about the app's own network can be read" >&2
+          echo "   from here. Reporting what the device's shell sees; to prove it as the app, read its traffic (LOG)" >&2
+          echo "   or what it stored (STORE)." >&2
+          PREFIX=""; PKG=""; WHO="the device's shell user"
+          ok=1                      # the shell probe above already succeeded
+        fi ;;
+    esac
+  fi
+  if [ "$ok" != 1 ]; then
     echo "⚠️ $WHO cannot connect to $host:$port (${PROBE_OUT:-no answer}). The computer reaching it proves nothing." >&2
     if [ -n "$PREFIX" ] && "$ADB" shell "nc -w 5 -q 1 $host $port </dev/null" >/dev/null 2>&1; then
-      echo "   The device's shell DOES reach it: the app's own network rules block that address. For a server on this" >&2
-      echo "   computer, use \`adb reverse tcp:$port tcp:$port\` and http://127.0.0.1:$port in the app (measured)." >&2
+      echo "   The device's shell DOES reach it, and the app resolves other names fine: the app's own network rules" >&2
+      echo "   block that address. For a server on this computer, use \`adb reverse tcp:$port tcp:$port\` and" >&2
+      echo "   http://127.0.0.1:$port in the app (measured)." >&2
     else
       echo "   Try another address for the same server first — a VPN or Tailscale name the device already resolves" >&2
       echo "   (measured: LAN IP 'No route to host', Tailscale name reachable) — before building a relay." >&2

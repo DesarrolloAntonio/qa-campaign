@@ -79,6 +79,14 @@ Android-specific debris.
   (same pid before and after) while saying it had killed it, and two process-death checks proved
   nothing (measured). `kill` now reads the pid after, finishes a debuggable app with `kill -9`, and
   refuses when it is still alive.
+- **`run-as` may resolve no name at all.** Measured on an API 37 emulator during a campaign: from
+  `run-as <pkg>`, the test server's name and a public control name both failed with "No address
+  associated with hostname", while the device's shell resolved both and the app itself was talking to
+  the server the whole time. Asking *as the app* is still the right question — the shell's network is
+  not the app's — but a failure there only means something when a control name works from the same
+  context. `net.sh reach` checks the control now and says NOT PROVEN instead of blaming the app; to
+  prove reachability as the app when that happens, read its own traffic (LOG) or what it stored
+  (STORE).
 - **An open port is not a server, and an `adb reverse` port is always open.** Measured on API 37: with
   nothing listening on the computer's end, the device's `nc` connected to the forwarded port and exited
   0 — and `net.sh reach` called that "server reachable". A port nobody forwards refuses properly. So

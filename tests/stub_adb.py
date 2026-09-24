@@ -15,6 +15,9 @@ on the allow-list.
     STUB_SETTINGS_LOST=1        that read fails, the way adb over Wi-Fi dies with airplane mode
     STUB_NC=yes|no              does the device have `nc`
     STUB_NC_EXIT                exit code of a plain `nc` connect (0 = the port takes it)
+    STUB_NC_APP                 the same, for a probe made through `run-as` (defaults to STUB_NC_EXIT)
+    STUB_NC_APP_ERR             what that probe prints when it fails
+    STUB_NC_CONTROL             exit code for the control name `run-as` resolves to prove its DNS works
     STUB_HTTP                   the status line the HTTP probe gets back; empty = silence
     STUB_RUNAS=yes|no           is the app debuggable (`run-as <pkg> id`)
     STUB_EMU                    what the emulator console answers (`OK`, `KO: …`)
@@ -74,10 +77,21 @@ if "nc -w" in cmd:
     # The harness sends the pipeline and appends `; echo exit=$?` itself, so answer like a shell would.
     if "printf" in cmd:                                   # the HTTP probe
         out(env("STUB_HTTP", ""))
-    code = env("STUB_NC_EXIT", "0")
+    as_app = cmd.startswith("run-as")
+    control = env("QA_CONTROL_HOST", "android.com") in cmd
+    if control:                                           # the "does any name resolve here" control
+        code, why = env("STUB_NC_CONTROL", "0"), "nc: bad address 'android.com'"
+    elif as_app:
+        code, why = env("STUB_NC_APP", env("STUB_NC_EXIT", "0")), env("STUB_NC_APP_ERR", "nc: connect: Connection refused")
+    else:
+        code, why = env("STUB_NC_EXIT", "0"), "nc: connect: Connection refused"
     if code != "0":
-        sys.stderr.write("nc: connect: Connection refused\n")
-    out(f"exit={code}" if "echo exit=" in cmd else "", 0 if code == "0" else 0)
+        sys.stderr.write(why + "\n")
+    # With `; echo exit=$?` the shell's own status is echo's (0) and the code is in the output; without
+    # it, the caller reads nc's status, so the stub has to exit with it.
+    if "echo exit=" in cmd:
+        out(f"exit={code}", 0)
+    out("", int(code))
 if cmd.startswith("dumpsys connectivity"):
     if env("STUB_VALIDATED", "yes") == "yes":
         out("Active default network: 100\n"
