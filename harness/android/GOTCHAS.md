@@ -42,12 +42,11 @@ Android-specific debris.
   search term gone, while the app showed it right. Not reproduced on API 37: the dump escaped `"` and
   `'` and read the whole text back (measured). If a text looks cut, check it with `ui.py shot` before
   filing anything.
-- **A modal bottom sheet or dialog is its own window**, and the dump returns only that window: the
-  screen behind it — a snackbar raised there included — is invisible until it closes. Close it and
-  dump again before concluding anything is missing (measured: a message was found only that way).
-- **Gboard's stylus pill can sit on top of the app** — over a nav rail it took a tap meant for the
-  rail and raised another app's permission dialog. The input guard caught it; `adb shell am force-stop
-  com.google.android.inputmethod.latin` clears the pill without changing a setting (measured).
+- **A modal bottom sheet or dialog is its own window** — the rule and what it costs are in `SKILL.md`
+  R5; on Android the dump returns that window alone, and `find`/`tap` fall back to the app's other
+  windows only when the focused one has no match, so a popup menu is reachable but a screen behind a
+  dialog is not.
+
 - **`ui.py size` changes width and density together** (tablet 240 dpi, phone 420): compare layouts in
   dp, never columns or pixels across presets — the tool warns when the density changed.
 - **Kotlin Multiplatform: no comma in a backtick test name.** Kotlin/Native rejects it, and it surfaces
@@ -56,10 +55,13 @@ Android-specific debris.
 - `input text` **drops non-ASCII** (ñ, é, emoji): every fixture typed by the harness is ASCII, so
   non-ASCII data never round-trips through STORE and API unless you create it through the API.
 - **Gboard on an emulator shows a stylus pill, not a keyboard**, every time a field gets focus — a
-  small floating toolbar that doesn't take BACK. `ui.py show-keyboard` brings a real keyboard up with
-  the pill's own Alt+K; `hide-keyboard` sends nothing while only the pill is up. For the whole run,
-  `settings put secure stylus_handwriting_enabled 0` gives the keyboard from the next focus — a device
-  setting, so ask first.
+  small floating toolbar that doesn't take BACK, and it can sit on top of the app: over a nav rail it
+  took a tap meant for the rail and raised another app's permission dialog (the input guard caught
+  it). In order: `ui.py show-keyboard` brings a real keyboard up with the pill's own Alt+K;
+  `hide-keyboard` sends nothing while only the pill is up; `adb shell am force-stop
+  com.google.android.inputmethod.latin` clears the pill without changing a setting; and for the whole
+  run, `settings put secure stylus_handwriting_enabled 0` gives the keyboard from the next focus — a
+  device setting, so ask first.
 - **A Toast is not in the accessibility tree**, so `dump`, `find` and `assert` never see one; a
   snackbar is. To read a Toast: `adb shell uiautomator events` while you trigger it — it is a
   UiAutomation session, so never at the same time as a `dump` — or a screenshot taken at once.
