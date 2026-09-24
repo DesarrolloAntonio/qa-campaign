@@ -10,8 +10,13 @@ reports THIS run wrote, never from what was already on disk.
         -- ./gradlew :feature:ui:testDebugUnitTest --tests '*PaneBackStackTest' --rerun --no-build-cache
 
 Exit 0 when the result is the one you expected, 1 when it is the other colour, 2 when the test did not
-run at all (a build failure, a timeout, only skipped tests, or no report newer than the run), 3 when a
-`--break` could not be put back (the message says where the original is).
+run at all (a build failure, a timeout, only skipped tests, no report newer than the run, or a `--test`
+that named more than one class), 3 when a `--break` could not be put back (the message says where the
+original is).
+
+`--test` is an identity, not a search: it matches the class, its last segment, or `Class.method`, and
+every report file it was counted from is printed. Two different classes answering to it is a NOT RUN,
+because the colour would be a mix of both.
 
 `--break FILE OLD NEW` makes the break for this run and undoes it afterwards: OLD must appear exactly
 once in FILE, and the file is written back byte for byte and checked — after this script's own
@@ -176,7 +181,10 @@ def reports_written_since(roots, before, name_filter):
                 if not matches_filter(cls, name, name_filter):
                     continue
                 tests += 1
-                counted.setdefault(cls, path)
+                # Every report the class was counted from, not just the first: the same class name in two
+                # modules, or one class run on two devices, look identical in the totals otherwise.
+                if path not in counted.setdefault(cls, []):
+                    counted[cls].append(path)
                 bad = case.find("failure")
                 if bad is None:
                     bad = case.find("error")
@@ -233,8 +241,12 @@ def judge(a, cmd):
         roots = default_roots()
 
     tests, failures, skipped, messages, crashes, counted = reports_written_since(roots, before, a.test)
-    for cls, path in sorted(counted.items()):
-        print(f"   counted {cls} from {path}")
+    for cls, paths in sorted(counted.items()):
+        for path in paths:
+            print(f"   counted {cls} from {path}")
+        if len(paths) > 1:
+            print(f"   note: {cls} counted from {len(paths)} report files — two variants, two source sets or two "
+                  "devices. The colour below is all of them together.")
     if not a.test and len(counted) > 1:
         # Without --test, any report the command touched counts: an unrelated module's tests turned an
         # up-to-date target into GREEN (audit). Name what was counted instead of hiding it.
@@ -244,6 +256,12 @@ def judge(a, cmd):
     if cached:
         print(f"NOT RUN: the task came FROM-CACHE, so the report on disk is a restored one, not this run's "
               f"({cached[0].strip()[:120]}). Re-run with --rerun --no-build-cache.")
+        sys.exit(2)
+    if a.test and len(counted) > 1:
+        # `--test Foo` names ONE test. Two classes answering to it are two different tests — sibling
+        # classes, or the same name in another module — and the colour would be a mix of both (audit).
+        print(f"NOT RUN: --test {a.test!r} matched {len(counted)} different classes: " + ", ".join(sorted(counted))
+              + ". Name the class with its package, or point --reports at the one module.")
         sys.exit(2)
     if tests == 0:
         # Only when the command actually failed: `error:` appears in plenty of successful output, and an
@@ -279,6 +297,8 @@ def judge(a, cmd):
     else:
         result = "green"
         print(f"GREEN: {tests - skipped} passed{f', {skipped} skipped' if skipped else ''}, from reports this run wrote")
+        print("   A green is the runner's verdict, not proof the test exercised the behaviour: an early `return`, a "
+              "swallowed exception or a missing assertion all pass. The red you saw first is what proves it (R6).")
     sys.exit(0 if result == a.expect else 1)
 
 

@@ -10,8 +10,8 @@ Selectors (space-separated, ALL must match):
     desc=Settings      contentDescription    desc~=sync      contains
     id=fab_add         testTag / resource-id (suffix)        id~=row_        contains
     class=… class~=…   clickable= scrollable= enabled= checked= selected=  (true/false)
-The first match is used, with a warning when it hits several different controls; `--index N` picks
-another. `--expect <sel>` on tap/longpress/type/clear acts only if that selector is on screen.
+The first match is used; a selector that hits several DIFFERENT controls is refused instead — name one
+with `--index N`, or `--any` to take the first on purpose. `--expect <sel>` on tap/longpress/type/clear acts only if that selector is on screen.
 `--in <sel>` on tap/longpress/find/assert looks only inside the item that selector names.
 
     ui.py tap "desc=Settings"
@@ -537,7 +537,7 @@ def find_in(sel, within=None, nodes=None):
     return inside
 
 
-def tap(sel, index=None, long=False, expect=None, within=None):
+def tap(sel, index=None, long=False, expect=None, within=None, allow_any=False):
     nodes = check_expected(expect) or dump()
     found = find_in(sel, within, nodes)
     if not found:
@@ -545,10 +545,10 @@ def tap(sel, index=None, long=False, expect=None, within=None):
     if len(found) <= (index or 0):
         visible = [n.label() for n in nodes if n.label()][:25]
         raise SystemExit(f"NOT found: {sel!r} (index {index or 0}). What IS there: {visible}")
-    n = clickable_ancestor(found[index or 0])
-    # "First match wins" is the grammar, but a selector that hits two different controls is usually a
-    # mistake: `text~=OK` matched an error message ({"ok":false…}) before the button, and the tap
-    # printed a normal line (measured). Say so, unless the caller chose one with --index.
+    # A selector that hits two DIFFERENT controls is a question, not a choice: `text~=OK` matched an
+    # error message ({"ok":false…}) before the button, and the tap printed a normal line (measured).
+    # It used to take the first and warn — which is how "Delete" hits the wrong Delete and the run
+    # still reads green. It refuses now: `--index N` names one, `--any` takes the first on purpose.
     matched = found[index or 0]
     targets, labels = [], []
     for m in found:
@@ -556,10 +556,15 @@ def tap(sel, index=None, long=False, expect=None, within=None):
         if all(t is not o for o in targets):
             targets.append(t)
             labels.append(m.label() or shown(t) or t.cls.split('.')[-1])
-    if within and index is None and len(targets) > 1:
-        # --in is for controls where a wrong guess costs data: never pick the first of several.
+    if index is None and len(targets) > 1:
         listed = "; ".join(f"[{i}] {lab}" for i, lab in enumerate(labels[:5]))
-        raise SystemExit(f"{sel!r} in {within!r} is still {len(targets)} different controls ({listed}). Refusing; narrow it.")
+        where = f" in {within!r}" if within else ""
+        if not allow_any:
+            raise SystemExit(f"refusing: {sel!r}{where} is {len(targets)} different controls ({listed}). "
+                             "Narrow the selector, name one with --index N, or --any to take the first.")
+        print(f"note: {sel!r}{where} is {len(targets)} different controls ({listed}) — --any took the first",
+              file=sys.stderr)
+    n = clickable_ancestor(matched)
     n = ensure_tappable(sel, n, index or 0, within)
     x, y = n.center
     # The dump still lists nodes the keyboard covers: a tap meant for "Create" typed a "g" into a
@@ -576,8 +581,8 @@ def tap(sel, index=None, long=False, expect=None, within=None):
         shell("input", "tap", str(x), str(y))
     note = ""
     if index is None and len(found) > 1:
-        # Any repeat, not only different controls: "Partial" as a label and as a chip are both plain text,
-        # and the tap went to the label silently — in three processes (measured).
+        # Repeats that are the same control (a label and its chip inside one row: measured in three
+        # processes) are not ambiguous — the tap lands in the right place. Still say how many there were.
         listed = "; ".join(f"[{i}] {m.label() or m.cls.split('.')[-1]} @({m.center[0]},{m.center[1]})" for i, m in enumerate(found[:5]))
         note = f" — ⚠️ first of {len(found)} matches ({listed}); use --index or a narrower selector"
     # The label of what the SELECTOR matched, not the first label inside the clickable container:
@@ -1722,6 +1727,8 @@ def main():
     for name in ("tap", "longpress"):
         s = sub.add_parser(name); s.add_argument("sel"); s.add_argument("--index", type=int, default=None)
         s.add_argument("--expect", help=expect_help); s.add_argument("--in", dest="within", help=in_help)
+        s.add_argument("--any", action="store_true", dest="allow_any",
+                       help="take the first when the selector is several different controls, instead of refusing")
     s = sub.add_parser("watch", help="every label that shows for N seconds — for messages too short for one dump")
     s.add_argument("seconds", type=float); s.add_argument("--until", help="stop as soon as this selector appears")
     s = sub.add_parser("log", help="the running app's log, secrets hidden — never clears the buffer")
@@ -1861,7 +1868,8 @@ def main():
             # message over a blank screen (measured). Like grep, nothing found is exit 1.
             raise SystemExit(f"no match: {a.sel!r}")
     elif a.cmd in ("tap", "longpress"):
-        tap(a.sel, a.index, long=a.cmd == "longpress", expect=a.expect, within=a.within)
+        tap(a.sel, a.index, long=a.cmd == "longpress", expect=a.expect, within=a.within,
+            allow_any=a.allow_any)
     elif a.cmd == "wait":
         wait(a.sel, a.timeout, a.gone)
     elif a.cmd == "watch":

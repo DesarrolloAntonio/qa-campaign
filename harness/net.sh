@@ -6,8 +6,9 @@
 #   net.sh slow [edge]      throttled: speed and latency (gprs | edge | umts). Emulator only
 #   net.sh full             removes the throttle
 #   net.sh status           airplane mode, validated network, speed, and the test server if configured
-#   net.sh reach [url]      can the DEVICE open a connection to the test server? Default: server.urlFromDevice
-#                           or server.url in qa.config.json. Exit 1 when it can't
+#   net.sh reach [url]      can the APP reach the test server? DNS, TCP and then HTTP — an open port is
+#                           not a server. Default: server.urlFromDevice or server.url in qa.config.json.
+#                           Exit 1 when a layer it checked failed, 2 when it could not check at all
 #
 # Device: `--device <alias>` (from `devices` in qa.config.json), `QA_DEVICE=<alias>`, or ANDROID_SERIAL.
 # Exit 1 whenever no device answers: a status printed for a device that is not there is a lie (R8).
@@ -163,41 +164,104 @@ print(s.get("urlFromDevice") or s.get("url") or "")
 
 # "The device has internet" says nothing about the test server: an emulator with a validated network
 # could not open a connection to a LAN server the computer reached fine (measured: "No route to host").
-# Only a connection from the device itself answers it. toybox `nc` exits 0 when it connects and 1 with
-# the reason otherwise — measured: refused, no route, timeout, unknown host.
-reach() {
-  local url hostport host port out
-  url="$(server_url "$1")"
-  [ -n "$url" ] || { echo "reach: no url given and no server.url in qa.config.json" >&2; return 2; }
-  hostport=$(python3 -c '
+# Only a connection from the device itself answers it.
+#
+# And a connection is not a conversation. `reach` used to stop at the open port: measured on API 37, an
+# `adb reverse` port whose other end had nothing listening took the connection and exited 0, so `reach`
+# printed "server reachable" with no server anywhere. It now goes up the layers — DNS, TCP, then HTTP —
+# and says which ones it proved and from where.
+#
+# The device has no HTTP client to do that with: measured on an API 37 emulator, `curl`, `wget` and
+# `openssl` are all missing and only `nc` is there. So HTTP is spoken by hand over `nc` against a plain
+# http:// server, and for https:// the layers above TCP are checked from THIS COMPUTER and labelled as
+# such — a handshake or a certificate failing with the port wide open is the server's fault, and that
+# is the case a TCP-only check calls "reachable".
+PROBE_OUT=""; PREFIX=""; PKG=""; WHO="the device's shell user"
+
+# scheme, host, port and path of a url, one line, in that order.
+parse_url() {
+  python3 -c '
 import sys
 from urllib.parse import urlsplit
 u = urlsplit(sys.argv[1] if "://" in sys.argv[1] else "http://" + sys.argv[1])
 if not u.hostname: sys.exit("reach: cannot read a host from %r" % sys.argv[1])
-print(u.hostname, u.port or (443 if u.scheme == "https" else 80))
-' "$url") || return 2
-  host=${hostport% *}; port=${hostport#* }
-  if [ -z "$("$ADB" shell command -v nc | tr -d '\r')" ]; then
+print(u.scheme or "http", u.hostname, u.port or (443 if u.scheme == "https" else 80), u.path or "/")
+' "$1"
+}
+
+# Ask AS THE APP when it is debuggable: the shell user's network is not the app's. Measured on API 37:
+# the shell connected to 10.0.2.2 while the app's own uid timed out on the same address.
+as_the_app() {
+  PREFIX=""; PKG=""; WHO="the device's shell user"
+  local pkg
+  pkg=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1] or "{}").get("package", ""))' "$(config android)")
+  if [ -n "$pkg" ] && "$ADB" shell run-as "$pkg" id 2>&1 | grep -q "uid="; then
+    PREFIX="run-as $pkg "; PKG="$pkg"; WHO="the app ($pkg)"
+  fi
+}
+
+have_nc() { [ -n "$("$ADB" shell command -v nc | tr -d '\r')" ]; }
+
+# Layers 1-2: can a connection be opened at all? toybox `nc` exits 0 when it connects and 1 with the
+# reason otherwise — measured: refused, no route, timeout, unknown host (that last one is the DNS layer
+# answering). The reason, when there is one, is left in PROBE_OUT.
+tcp_probe() {
+  local out
+  out=$("$ADB" shell "${PREFIX}nc -w 5 -q 1 $1 $2 </dev/null; echo exit=\$?" 2>&1 | tr -d '\r')
+  if [ "${out##*exit=}" = "0" ]; then PROBE_OUT=""; return 0; fi
+  PROBE_OUT=$(printf '%s' "${out%exit=*}" | head -1)
+  return 1
+}
+
+# Layer 3: does anything on that port speak HTTP? Prints the status code, and nothing when the port
+# stays silent. `printf … | nc` on its own loses the exchange: stdin closes at once and the connection
+# goes down before the answer arrives — through `adb reverse` the request never even reached the server
+# (measured). Keeping stdin open for a few seconds brings the status line back, in both directions.
+http_probe() {
+  local host=$1 port=$2 path=$3 script
+  case "$path" in *[!A-Za-z0-9._~/%=?\&+-]*) path="/" ;; esac
+  script="(printf \"GET $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n\"; sleep 3) | nc -w 8 $host $port"
+  if [ -n "$PKG" ]; then script="run-as $PKG sh -c '$script'"; fi
+  "$ADB" shell "$script" 2>&1 | tr -d '\r' | sed -n 's|^HTTP/[0-9.]* *\([0-9][0-9][0-9]\).*|\1|p' | head -1
+}
+
+# Layers 3-4 for https, from here, because the device has no TLS client. A 401 or a 404 proves TLS and
+# HTTP just as well as a 200: what is being asked is whether the server answers, not whether we are
+# allowed in.
+tls_http_from_here() {
+  python3 - "$1" <<'PY'
+import sys, urllib.error, urllib.request
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=8) as r:
+        print(r.status); sys.exit(0)
+except urllib.error.HTTPError as e:
+    print(e.code); sys.exit(0)
+except urllib.error.URLError as e:
+    text = str(getattr(e, "reason", e))
+    if "SSL" in text.upper() or "CERTIFICATE" in text.upper():
+        print("refused the handshake — %s" % text); sys.exit(1)
+    print("no answer from here — %s" % text); sys.exit(2)
+except Exception as e:                      # a bad url, a redirect loop: not the device's fault
+    print("no answer from here — %s" % e); sys.exit(2)
+PY
+}
+
+reach() {
+  local url fields scheme host port path layers out status rc
+  url="$(server_url "$1")"
+  [ -n "$url" ] || { echo "reach: no url given and no server.url in qa.config.json" >&2; return 2; }
+  fields=$(parse_url "$url") || return 2
+  read -r scheme host port path <<EOF
+$fields
+EOF
+  if ! have_nc; then
     echo "reach: the device has no nc, so the server cannot be checked from it (which is not the same as unreachable)" >&2
     return 2
   fi
-  # Ask AS THE APP when it is debuggable: the shell user's network is not the app's. Measured on API 37:
-  # the shell connected to 10.0.2.2 while the app's own uid timed out on the same address.
-  local pkg prefix="" who="the device's shell user"
-  pkg=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1] or "{}").get("package", ""))' "$(config android)")
-  if [ -n "$pkg" ] && "$ADB" shell run-as "$pkg" id 2>&1 | grep -q "uid="; then
-    prefix="run-as $pkg "; who="the app ($pkg)"
-  fi
-  if out=$("$ADB" shell "${prefix}nc -w 5 -q 1 $host $port </dev/null; echo exit=\$?" 2>&1 | tr -d '\r') && [ "${out##*exit=}" = "0" ]; then
-    echo "server reachable from $who: $host:$port"
-    if [ -z "$prefix" ]; then
-      echo "   (not checked as the app — not debuggable, or no android.package — and the app's network can differ)" >&2
-    fi
-    return 0
-  else
-    out=$(printf '%s' "${out%exit=*}" | head -1)
-    echo "⚠️ $who cannot connect to $host:$port (${out:-no answer}). The computer reaching it proves nothing." >&2
-    if [ -n "$prefix" ] && "$ADB" shell "nc -w 5 -q 1 $host $port </dev/null" >/dev/null 2>&1; then
+  as_the_app
+  if ! tcp_probe "$host" "$port"; then
+    echo "⚠️ $WHO cannot connect to $host:$port (${PROBE_OUT:-no answer}). The computer reaching it proves nothing." >&2
+    if [ -n "$PREFIX" ] && "$ADB" shell "nc -w 5 -q 1 $host $port </dev/null" >/dev/null 2>&1; then
       echo "   The device's shell DOES reach it: the app's own network rules block that address. For a server on this" >&2
       echo "   computer, use \`adb reverse tcp:$port tcp:$port\` and http://127.0.0.1:$port in the app (measured)." >&2
     else
@@ -206,6 +270,58 @@ print(u.hostname, u.port or (443 if u.scheme == "https" else 80))
     fi
     return 1
   fi
+  layers="DNS+TCP ok"
+  if [ "$scheme" = "https" ]; then
+    out=$(tls_http_from_here "$url") && rc=0 || rc=$?
+    case "$rc" in
+      0) layers="$layers · TLS+HTTP $out, checked from THIS COMPUTER (the device has no TLS client)" ;;
+      1) echo "⚠️ $host:$port takes a connection, but TLS $out (checked from this computer)." >&2
+         echo "   An open port is not the server answering: fix the certificate or the handshake before reading" >&2
+         echo "   anything the app does with that server." >&2
+         return 1 ;;
+      *) layers="$layers · TLS+HTTP NOT PROVEN ($out) — only the open port is proven" ;;
+    esac
+  else
+    status=$(http_probe "$host" "$port" "$path")
+    if [ -n "$status" ]; then
+      layers="$layers · HTTP $status from the server"
+    else
+      echo "⚠️ $host:$port takes a connection from $WHO but answers no HTTP. An open port is not a server:" >&2
+      echo "   a dangling \`adb reverse\` accepts the connection with nothing behind it (measured). Check what is" >&2
+      echo "   listening on the other end before trusting an online or an offline result." >&2
+      return 1
+    fi
+  fi
+  echo "server reachable from $WHO: $host:$port — $layers"
+}
+
+# Airplane mode is Android's state, not the app's: a server on this computer behind `adb reverse`, a
+# VPN, or anything on the device itself still answers with the radios off — and a test driven against
+# one of those is not an offline test. Ask from the app's side before printing the word.
+offline_check() {
+  local url fields scheme host port path
+  url="$(server_url "")"
+  [ -n "$url" ] || return 0
+  fields=$(parse_url "$url") || return 0
+  read -r scheme host port path <<EOF
+$fields
+EOF
+  have_nc || { echo "   (not checked from the app's side: the device has no nc)" >&2; return 0; }
+  as_the_app
+  if ! tcp_probe "$host" "$port"; then
+    echo "   and $WHO cannot reach $host:$port either (${PROBE_OUT:-no answer}) — offline for the app too"
+    return 0
+  fi
+  case "$host" in
+    127.0.0.1|::1|localhost)
+      echo "   note: $host:$port still answers — that is the relay or the fake server on this computer, not the" >&2
+      echo "   internet. Offline against a fake server is a fine test; say which one the report means." >&2
+      return 0 ;;
+  esac
+  echo "⚠️ airplane mode is on, but $WHO still reaches $host:$port — this is NOT offline for the app" >&2
+  echo "   (a VPN, a server on the device or the LAN, or an \`adb reverse\` port). Cut that path too, or say in the" >&2
+  echo "   report which server the \"offline\" test was talking to." >&2
+  return 1
 }
 
 # The emulator console prints "OK" or "KO: …" and exits 0 either way; on a physical device `adb emu`
@@ -232,7 +348,7 @@ case "${1:-status}" in
         # silently — which is the very case this is here to report (measured with a stub adb).
         mode=$("$ADB" shell settings get global airplane_mode_on 2>/dev/null | tr -d '\r') || mode=""
         case "$mode" in
-          1) echo "offline (airplane_mode_on=1)"; exit 0 ;;
+          1) echo "offline (airplane_mode_on=1)"; offline_check || exit 1; exit 0 ;;
           "") echo "⚠️ adb lost the device after enabling airplane mode — connected over Wi-Fi? Nothing can be verified from here." >&2; exit 1 ;;
           *) echo "⚠️ no validated network, but airplane_mode_on=$mode — something else took the network down" >&2; exit 1 ;;
         esac

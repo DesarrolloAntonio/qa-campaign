@@ -92,9 +92,23 @@ module's process re-reads its rows before writing its catalogue, and re-runs the
 module only if its code changed since. Record every finding, including the ones that turn out to be
 measurement errors — and say which ones were.
 
+What each grep did, not only what survived it (R4) — the numbers have to add up:
+
+| Sweep | Candidates | Discarded (by the rule) | Driven | Confirmed | Unproven |
+|---|---|---|---|---|---|
+| S1 | | | | | |
+| S2 | | | | | |
+| S3 | | | | | |
+| S4 | | | | | |
+
 | ID | Module | Sweep | Sev | Finding | Evidence | Status |
 |---|---|---|---|---|---|---|
 | ABS-01 | | S1 | | | | |
+
+> An S3 row — and any row that came from comparing with a sibling — starts its `Status` with what the
+> absence turned out to be: **defect** · platform difference on purpose · the backend does not offer it ·
+> product decision (→ queue, no severity) · not applicable · unknown (→ queue). Only the first is a
+> finding (R4).
 
 ## 7. User queue (R2)
 

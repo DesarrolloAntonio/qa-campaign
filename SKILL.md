@@ -237,6 +237,27 @@ Comparing against a **sibling** — the other platform's client, the previous ve
 *different* net: it catches what one has and the other lacks. It says nothing when **both** are
 missing something. You need both nets, and R5 says which is which.
 
+**A grep generates candidates; a candidate is not a finding.** Each sweep reports its numbers, and they
+have to add up: `27 candidates · 19 discarded (previews, default values) · 8 driven · 3 confirmed · 1
+unproven`. A sweep that reports only what survived hides the two ways it can be wrong — a discard list
+applied too widely, and hits nobody drove. **Zero hits is not zero problems** either: say which grep
+returned zero, because the next person needs to know whether the sweep ran or found nothing.
+
+**An absence is not automatically a defect.** S3 and the sibling net both end in "the product does not
+have X", and that sentence has six endings. Write which one, beside X:
+
+| Ending | When |
+|---|---|
+| **defect** | something in the product already promises X — a menu, a setting, a label, a written plan. This is the only ending that is a finding |
+| platform difference on purpose | another platform has it and this one is not meant to |
+| the backend does not offer it | REF talks to a newer server, or to a different one |
+| product decision | nobody has decided: it goes to the human queue with what you found, not into the report with a severity you chose |
+| not applicable | X makes no sense here — a desktop idea on a phone |
+| unknown | you could not tell. An honest answer, written down, plus a queue item; not a discard |
+
+REF is the list of what the domain supports, not the list of what this product owes its users: a
+feature REF has is a **candidate**, and the ending above is what turns it into a finding or a question.
+
 ### R5 — Never one oracle
 
 An oracle is something you can query that answers yes or no:
@@ -260,6 +281,14 @@ document or system defines what the product should do.
 UI / STORE / API — an optimistic UI that reported success for a write the server refused is
 invisible to any single one. A pure-UI claim (a dialog opened, the back stack is sane) needs the UI
 oracle plus a second look: EYE, or the same UI read again after a recreation (R9).
+
+**Two oracles only agree when they are about the same thing.** "The API said 200 and the screen said
+saved" is a chain of evidence only if both point at the **same operation**: the same fixture, named by
+its id or its `QA_` name, and the second reading taken **after** the write. Two correct answers about
+different rows read exactly like one correct answer — and it is an easy line to write, because by then
+the run is already green. So a claim names the fixture, the account, the build, and the order the
+oracles were read in. `QA_Item_17` costs nothing to write and lets someone who wasn't there check the
+chain; "the item" does not.
 
 Four ways the UI oracle says less than it seems, all measured:
 
@@ -409,6 +438,12 @@ cannot reach the device, or has no configuration, must refuse — never print "0
 
 When you change the harness, prove the change in **both directions**: the false positives are gone,
 *and* a real finding is still caught (re-introduce one and check).
+
+The harness in this repository has its own tests — `tests/run`, a fake `adb` and no device — and each
+one is a sentence about what the tool must **refuse**: an ambiguous selector, a device that is not on
+the allow-list, an open port that answers no HTTP, a report an earlier run wrote. Run them after
+touching anything under `harness/`, and when a campaign catches the harness lying, the fix arrives with
+the test that would have caught it (R12).
 
 ### R9 — "The UI gets recreated" is an axis of its own
 
@@ -953,6 +988,12 @@ or path exists in *that* build (`BuildConfig.DEBUG`, the flavor, a debug-only me
 anything P0: a leak visible only in a build nobody receives is a finding for that build, not a P0 for
 users.
 
+**If you cannot point at the row, it is not your call.** Every severity in the report names the line of
+that table it matches. A finding that matches none of them, or whose severity depends on what the
+product is *meant* to do, goes to the human queue with your reasoning — not into the report with a
+number you picked. Severity is where a plausible-sounding paragraph turns a P0 into a P2, so this is
+the one judgement the method does not leave to the agent alone.
+
 The "what" is written so that someone who has never seen the code understands the consequence:
 
 > **P1 — "Note updated" over an edit the server refused.** A note shared read-only answers the PUT
@@ -984,7 +1025,8 @@ pixels — it is text, it can be asserted on, and it is cheap.
 #   python3 ~/.claude/skills/qa-campaign/harness/android/ui.py --device phone dump
 ui.py --device phone dump               # the screen as text; device by alias (or --serial / ANDROID_SERIAL)
 ui.py tap "text=Add item"               # selectors: text= text~= desc= desc~= id= id~= class= class~=
-                                        #            clickable= scrollable= enabled= checked= selected= · --index N
+                                        #            clickable= scrollable= enabled= checked= selected=
+                                        # several DIFFERENT controls = a refusal, not the first one (--index N / --any)
 ui.py tap "text=Save" --expect "text=Edit item"   # only if that screen is showing; stops otherwise
 ui.py tap "desc=Delete" --in "text=QA_Item1"      # the Delete of THAT item — refuses if it can't be sure
 ui.py assert "text=Delete" --absent     # exit 1 if wrong — what a script gates on (`wait`, `watch`, `state` too)
