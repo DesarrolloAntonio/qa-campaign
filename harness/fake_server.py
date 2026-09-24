@@ -8,13 +8,15 @@ body — so the run report can show what the app actually sent.
     fake_server.py --port 18099 --status 401 --body '{"ok":false,"message":"unauthorized"}'
     fake_server.py --port 18099 --status 502 --body '<html>Bad gateway</html>' --type text/html
     fake_server.py --port 18099 --status 200 --delay 40          # a server that answers too late
-    fake_server.py --port 18099 --routes routes.json             # {"GET /api/items": {"status": 200, "body": "[]"}}
+    fake_server.py --port 18099 --routes routes.json --status 404  # {"GET /api/items": {"status": 200, "body": "[]"}}
+                                                                   # --status is what every OTHER path gets
 
     fake_server.py --port 18099 --status 200 --body '{"ok":true}' --header "Set-Cookie: sessionid=QA_fake"
 
 Reaching it from an emulator: `adb reverse tcp:<port> tcp:<port>` and http://127.0.0.1:<port> in the
 app. http://10.0.2.2:<port> reaches the computer from the device's SHELL, but on API 37 the app's own
-uid timed out on it (measured) — check with `net.sh reach`, which asks as the app. A physical phone
+uid timed out on it (measured) — check with `net.sh reach`, which asks **as the app** on a debuggable
+build with `android.package` set, and from the device's shell otherwise (it says which). A physical phone
 needs --host 0.0.0.0 and the computer's address.
 
 Signing in against it: a cookie session needs the `Set-Cookie` header (--header, or "headers" in a

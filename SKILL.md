@@ -808,7 +808,7 @@ tools take four, and a second round gets skipped:
    monorepo with dozens of application modules has dozens of ids, and `android.package` holds exactly
    one — picked wrong, every command drives another app that looks just like it (audit). Record the
    answer next to the device in `CAMPAIGN.md`; `installed --apk` then ties the device to that build.
-6. Copy `qa.config.example.json` to `qa.config.json`. The scripts read `android.*` and `devices`;
+6. Copy `qa.config.example.json` to `qa.config.json`. The scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
    the rest (`server`, `session`, `fixtures`, `app`) documents the plan. **Secrets never go in it**:
    the adapter reads a separate `qa.credentials.json` (its shape: `adapters/README.md`).
 
@@ -945,6 +945,7 @@ ui.py installed --apk <file>            # version, install time, and whether the
 ui.py avds                              # every AVD, its version and size, which are running and which are in use — touches no device
 ui.py serial <alias>                    # the adb serial an alias means right now, for project-side scripts
 ui.py release                           # free the device for another campaign when this one stops
+ui.py --help · ui.py <command> --help   # every command and every flag, from the script itself
 ui.py wait "text~=Saved" --timeout 10   # gate on something appearing (or --gone); it doesn't scroll
 ui.py watch 6 --until "text~=expired"   # every label that shows for 6 s — snackbars last ~2 s, a dump ~1.5
 ui.py state "text=Public"               # ON/off of the switch beside that label

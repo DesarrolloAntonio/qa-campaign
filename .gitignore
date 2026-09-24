@@ -1,5 +1,6 @@
 # Never commit a filled-in config or any credentials.
 qa.config.json
+qa.credentials.json
 *.properties
 .env
 qa-shots/

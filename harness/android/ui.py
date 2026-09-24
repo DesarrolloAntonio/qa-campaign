@@ -1607,7 +1607,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--serial", help="adb serial; overrides ANDROID_SERIAL")
     p.add_argument("--device", help="alias from `devices` in qa.config.json (e.g. phone, tablet)")
-    p.add_argument("--pkg", default=DEFAULT_PKG)
+    p.add_argument("--pkg", default=DEFAULT_PKG,
+                   help="the app to act on; the default is android.package from qa.config.json")
     p.add_argument("--any-app", action="store_true",
                    help="allow input when another app is in front (a share sheet, a browser)")
     p.add_argument("--allow-device-change", action="store_true",

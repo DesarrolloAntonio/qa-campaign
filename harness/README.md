@@ -15,13 +15,13 @@ it. The **Commands** column is the interface SKILL.md and the templates rely on.
 
 | Capability | Why the process needs it | Commands | Android (`ui.py`) | Web | iOS simulator | Desktop |
 |---|---|---|---|---|---|---|
-| **Enumerate** the current screen as **text** | R3 (inventory), R5 (UI oracle). Text can be asserted on; pixels can't. | `dump` (switches print ON/off beside their label), `find <sel>` (exit 1 when nothing matches), `state <sel>`, `watch <seconds> [--until <sel>]` (for messages too short for one dump) | `uiautomator dump` | DOM / accessibility tree via the driver | `idb ui describe-all --json` (needs `pip install fb-idb`, `brew install idb-companion`); or XCUITest `debugDescription` | platform a11y API |
+| **Enumerate** the current screen as **text** | R3 (inventory), R5 (UI oracle). Text can be asserted on; pixels can't. | `dump` (switches print ON/off beside their label), `find <sel>` (exit 1 when nothing matches), `state <sel>`, `watch <seconds> [--until <sel>]` (for messages too short for one dump) | `uiautomator dump` | DOM / accessibility tree via the driver | `idb ui describe-all --json` (needs `pip install fb-idb`, then `brew tap facebook/fb && brew install idb-companion` — Homebrew asks you to `brew trust facebook/fb` first); or XCUITest `debugDescription` | platform a11y API |
 | **Act** | driving the app at all, and **gating** a script on what it sees | `tap`, `longpress`, `type`, `clear` (each with `--expect <sel>`: act only on that screen; every input command refuses when another app is in front, unless `--any-app`), `--in <sel>` on tap/longpress/find/assert (only inside the item that selector names; refuses when ambiguous), `installed [--apk f]` (is the device running that build?), `key`, `back`, `scroll-to`, `launch`, `open <url>`, `wait <sel> [--gone]`, `assert <sel> [--absent]` (exit 1 when wrong), `show-keyboard`, `hide-keyboard [--expect <sel>]` (BACK only if the keyboard is up, and fails if the screen went with it) | `adb shell input`, `am start` | CDP / Playwright | `idb ui tap/text/key/swipe`, `simctl openurl` | a11y actions |
 | **Read the local store** | R5 (STORE oracle) — catches optimistic UI lying about what was saved | `db <alias> "<sql>"`, `files`, `file <alias>` — secrets hidden | `run-as` + SQLite, with `-wal`; any file in the data folder | IndexedDB / localStorage via the driver | `simctl get_app_container data` + SQLite | app data dir |
 | **Screenshot**, deterministically | R5 (EYE oracle) | `shot <name>`, `demo on|off` | `screencap` + frozen status bar | full-page capture | `simctl io screenshot` | window capture |
-| **Cut the network** | offline-first processes | `net on|off|status` (a sibling script is fine) — and it must **wait until the change is real**; `net reach` checks the test server **from the device** | airplane mode via `cmd connectivity` | offline mode / proxy | the simulator has **no airplane mode**: cut at the host (Network Link Conditioner 100 % loss, a `pf` rule, a proxy), or give the app under test a launch argument that fails its HTTP layer — that is app code the campaign has to add, not a tool | firewall / proxy |
+| **Cut the network** | offline-first processes | `net on|off|status|slow <profile>|full` (a sibling script is fine) — and it must **wait until the change is real**, refusing when it cannot prove it; `net reach` checks the test server **from the device** | airplane mode via `cmd connectivity` | offline mode / proxy | the simulator has **no airplane mode**: cut at the host (Network Link Conditioner 100 % loss, a `pf` rule, a proxy), or give the app under test a launch argument that fails its HTTP layer — that is app code the campaign has to add, not a tool | firewall / proxy |
 | **Recreate the UI** without a cold start | R9 — where badly-saved state falls over | `rotate <0-3>` (must read the result back), `size phone|unfolded|tablet` on a resizable emulator (read back too), `kill` (process death that keeps saved state) | `wm user-rotation lock` polled via `dumpsys window`; HOME + `am kill` | reload, bfcache restore | `idb simulate-memory-warning`; `simctl terminate` + relaunch for state restoration; rotation has **no CLI** — AppleScript to Simulator.app, which needs Accessibility permission | window resize, sleep/wake |
-| **Read crashes and the log**, filtered to the app | R8 — the harness's own crashes must not be reported as the app's; R5's LOG oracle — where secrets leak | `crashes`, `clear-crashes` (exit 1 when any), `log [--grep text]` (secrets hidden, never clears) | `logcat -b crash`, filtered by package; `logcat --pid=<pidof app>` | `window.onerror` / console | `idb crash list`, or `~/Library/Logs/DiagnosticReports/<App>-*.ips` by process name (`simctl diagnose` is a multi-minute sysdiagnose, not this) | crash reporter |
+| **Read crashes and the log**, filtered to the app | R8 — the harness's own crashes must not be reported as the app's; R5's LOG oracle — where secrets leak | `crashes` (exit 1 when any), `clear-crashes`, `log [--grep text]` (secrets hidden after the grep, never clears) | `logcat -b crash`, filtered by package; `logcat --pid=<pidof app>` | `window.onerror` / console | `idb crash list`, or `~/Library/Logs/DiagnosticReports/<App>-*.ips` by process name (`simctl diagnose` is a multi-minute sysdiagnose, not this) | crash reporter |
 
 ### Selector grammar (shared by every harness)
 
@@ -35,9 +35,11 @@ picks another. `dump` prints one node per line:
 
 ### Configuration
 
-Read `qa.config.json` and nothing else: `<platform>.<appId>`, `<platform>.stores` (alias → path
-relative to the app's data container) and `devices` (alias → the platform's identifier). Anything
-project-specific in the script is a bug in the harness.
+Read `qa.config.json` and nothing else. The key names are per platform — see
+`qa.config.example.json`; Android reads `android.package`, `android.databases` (alias → SQLite file,
+for `db`), `android.files` (alias → path in the data folder, for `file`), `android.secretKeys`,
+`android.packagePrefix`, plus `devices` (alias → `avd:<name>` or a serial), `managedDevices` and
+`campaign`. Anything project-specific in the script is a bug in the harness.
 
 Before choosing, `avds` (Android) lists every emulator image with its version and whether it is
 already running, without touching any device — two campaigns on one computer can't share a running
@@ -47,7 +49,7 @@ Once `devices` lists anything, it is an **allow-list**: every command refuses a 
 on it, even when it is the only one attached. A work phone plugged into the same machine is exactly
 the device a default would pick. Emulators go in by AVD (`"avd:<name>"`), resolved to this boot's
 serial on every command: a serial is a console port handed out at boot, not a device. `serial
-<alias>` prints it for project-side scripts. Every command also **claims** the device for its
+<alias>` prints it for project-side scripts. `claim` takes the device without doing anything else — `net.sh` uses it. Every command also **claims** the device for its
 project, and a command from another project within 30 minutes is refused; `release` frees it.
 
 `redcheck.py` (next to `net.sh`) runs one test command and says RED, GREEN or NOT RUN from the JUnit
@@ -66,7 +68,8 @@ session (every app stores its own, R11), so add one variant to the project's inj
 ordinary test input: nothing to hide, nothing to ask.
 
 ```bash
-python3 harness/fake_server.py --port 18099 --routes routes.json &   # what the app calls on start, and the error
+python3 harness/fake_server.py --port 18099 --routes routes.json > fake_server.log 2>&1 &   # its request lines are evidence: keep them
+# … and when you are done: kill %1   (or pkill -f fake_server.py)
 adb reverse tcp:18099 tcp:18099                                      # the app reaches 127.0.0.1, not 10.0.2.2 (R10)
 scripts/qa/relogin.sh fake                                          # the project's injection, fake variant
 ```
