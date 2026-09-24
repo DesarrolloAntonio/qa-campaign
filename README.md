@@ -123,9 +123,15 @@ lives in `qa.config.json`; there is nothing to edit in the scripts.
 
 ## Status
 
-Extracted from a production campaign and generalised; then reviewed adversarially (60 findings
-against the first version, all fixed or recorded). The Android harness is used daily and proven
-against a second, unrelated app; the process applies to anything you can drive and query.
+Extracted from a production campaign and generalised, then run on four more products — a bookmarks
+client, a travel log, a multiplatform Nextcloud client and a fleet terminal — and twice audited
+adversarially, the second time with 106 findings, all of them applied or refuted with a reason (see
+the merged pull requests). The Android harness is used daily; the process applies to anything you can
+drive and query.
+
+The skill is a git checkout, so it moves: note the commit you started with —
+`git -C ~/.claude/skills/qa-campaign rev-parse --short HEAD`, which is what `CAMPAIGN.md` records as
+*Skill at start* — and don't pull in the middle of a campaign.
 Issues and PRs welcome — most useful of all would be `harness/web/` or `harness/ios/`.
 
 Issues: <https://github.com/DesarrolloAntonio/qa-campaign/issues> — two templates, *Friction log

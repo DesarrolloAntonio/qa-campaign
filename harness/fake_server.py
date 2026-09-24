@@ -84,16 +84,20 @@ def main():
                 time.sleep(delay)
             raw = body.encode()
             self.send_response(status)
-            headers = dict(h.split(":", 1) for h in a.header)
-            headers.update(route.get("headers", {}))
-            for name, value in headers.items():
+            # A list of pairs, not a dict: two `--header "Set-Cookie: …"` are two headers, and a dict
+            # kept only the last one (audit) — which is exactly how a server sets two cookies.
+            pairs = [tuple(h.split(":", 1)) for h in a.header]
+            pairs += [(str(k), str(v)) for k, v in route.get("headers", {}).items()]
+            for name, value in pairs:
                 self.send_header(name.strip(), str(value).strip())
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
-            self.wfile.write(raw)
+            # HEAD carries the headers and no body — a client that reads one hangs or errors.
+            if self.command != "HEAD":
+                self.wfile.write(raw)
 
-        do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = answer
+        do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = answer
 
         def log_message(self, *args):
             pass
