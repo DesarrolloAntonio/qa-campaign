@@ -538,10 +538,13 @@ own way — so the setup gate builds it. It is two questions.
    preferences file or database. The transport is the part to get right, because the obvious two
    break the rules above: **stream it over stdin**, so the value is never an argument and no copy is
    left on the device —
-   `adb -s "$(ui.py serial qa)" shell run-as <pkg> sh -c 'cat > shared_prefs/<file>.xml' < local.xml`
-   (`ui.py serial` because raw adb doesn't know the allow-list). A session inside SQLite needs the
-   device's own `sqlite3` — emulators have it, many phones don't — and where it isn't there,
-   mechanism 1 is the answer. The harness has no `put` command on purpose: what the session is made
+   `adb -s "$(ui.py serial qa)" shell run-as <pkg> tee shared_prefs/<file>.xml < local.xml >/dev/null`
+   (`ui.py serial` because raw adb doesn't know the allow-list). Paths are relative to the app's data
+   folder. `tee` rather than `sh -c 'cat > …'` because the redirection has to reach the device's shell
+   as **one** argument: unquoted, `sh -c 'cat > …'` was taken apart on the way and answered
+   "Permission denied" (measured on API 37; `adb shell "run-as <pkg> sh -c 'cat > …'"`, all in one
+   string, works too). A session inside SQLite needs the device's own `sqlite3` — emulators have it,
+   many phones don't — and where it isn't there, mechanism 1 is the answer. The harness has no `put` command on purpose: what the session is made
    of is the project's, not the skill's.
 3. **A debug-only launch argument** that accepts a token — app code, development builds only, and
    **only for a token that is ordinary test input**: one minted on a disposable server you run, or a
