@@ -9,6 +9,9 @@ PASS = '<testcase name="testSave" classname="{cls}" time="0.1"/>'
 FAIL = ('<testcase name="testSave" classname="{cls}" time="0.1">'
         '<failure message="expected:&lt;1&gt; but was:&lt;0&gt;" type="org.junit.ComparisonFailure">at Foo</failure>'
         '</testcase>')
+VERIFY = ('<testcase name="testSave" classname="{cls}" time="0.1">'
+          '<failure message="Wanted but not invoked: dao.insert(item);" '
+          'type="org.mockito.exceptions.verification.WantedButNotInvoked">at Foo</failure></testcase>')
 CRASH = ('<testcase name="testSave" classname="{cls}" time="0.1">'
          '<failure message="lateinit property db has not been initialized" '
          'type="kotlin.UninitializedPropertyAccessException">at Foo</failure></testcase>')
@@ -51,6 +54,14 @@ class RedCheck(Case):
     def test_a_failed_check_is_red(self):
         r = self.run_redcheck("--expect", "red", "--test", "FooTest", "--",
                              self.runner({"build/test-results/test/TEST-a.xml": junit(FAIL)}, code=1))
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "RED: 1 of 1 failed")
+
+    def test_a_verification_failure_is_the_tests_own_check(self):
+        # Mockito's "wanted but not invoked" is the assertion, not a crash before it — it was read as
+        # a crash on a real campaign and the red had to be confirmed by hand.
+        r = self.run_redcheck("--expect", "red", "--test", "FooTest", "--",
+                             self.runner({"build/test-results/test/TEST-a.xml": junit(VERIFY)}, code=1))
         self.assertEqual(0, r.returncode, r.stdout + r.stderr)
         self.assertSaid(r, "RED: 1 of 1 failed")
 

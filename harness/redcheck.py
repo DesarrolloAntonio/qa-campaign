@@ -155,11 +155,21 @@ def snapshot(roots):
 
 ASSERTION_TYPES = ("assertionerror", "assertionfailederror", "comparisonfailure", "assertionfailure",
                    "multiplefailureserror", "opentest4j")
+# A mocking library's verification failure IS the test's own check — "expected this call, it never
+# happened". Mockito throws its own types for it (WantedButNotInvoked, TooFewActualInvocations,
+# ArgumentsAreDifferent…), none of which ends in "AssertionError", so a real red was reported as a
+# crash and the campaign had to read the report by hand (friction log, Shiori campaign 2026-09-24).
+# Only `exceptions.verification`: a misuse (unnecessary stubbing) is the test being wrong, not its
+# check failing.
+VERIFICATION_PACKAGES = ("mockito.exceptions.verification", "mockk.assertion")
 
 
 def is_assertion(kind):
     """Did the test's own check fail, or did something blow up before it? (R6)"""
-    last = (kind or "").rsplit(".", 1)[-1].lower()
+    whole = (kind or "").lower()
+    if any(p in whole for p in VERIFICATION_PACKAGES):
+        return True
+    last = whole.rsplit(".", 1)[-1]
     return any(t in last for t in ASSERTION_TYPES)
 
 
