@@ -46,7 +46,9 @@ trash, a shared note or a server quirk, read it as *"the kind of thing"*, and su
 
 ### R1 — Gates, not a checklist
 
-Split the product into **sequential processes** and put a **gate** at the end of each. What closes
+Split the product into **sequential processes** and put a **gate** at the end of each. A *module*
+here is a feature area of the product — a top-level destination and the screens under it — not a
+build module. What closes
 a gate depends on the **fix mode** chosen at setup (§2.1):
 
 - **Fix severe** *(default)* and **fix all**: every finding the mode covers is fixed and verified in
@@ -87,13 +89,17 @@ preferences file can hold a list of pending changes (full). The clues that decid
 
 - **a queue of pending writes** — a background job that sends changes later (WorkManager,
   BackgroundTasks, Background Sync), or a *pending / dirty / syncStatus* field in the stored data →
-  **full**;
+  **full**. It has to carry the **user's own writes**: a shared logging or telemetry worker is not an
+  offline-first store, and counting it marked every app in a repository "full" (audit);
 - **screens read the local copy first** and refresh from the server afterwards, *and* edits land
   locally before the server answers → **full**;
 - local reads but every edit waits for the server → **short** (a cache);
 - network calls and nothing stored beyond settings and the session → **short**.
 
-When the clues disagree, take the deeper level. At either depth, **test the recovery on its own**:
+When the clues disagree, take the deeper level. **An outbox nobody reads back** — writes queued and
+sent, never shown again — is full depth without conflicts: what replaces the conflict and mix checks
+is the retry policy against duplicates (unique work, KEEP vs REPLACE), whether the input the job
+needs is still there when it finally runs, and what the user is shown when it gives up. At either depth, **test the recovery on its own**:
 "it says it can't reach the server" and "it works again when the network returns" are two checks. A
 map said the first and never did the second — the P1 was in the half that's easy to skip (measured).
 
@@ -173,7 +179,9 @@ product **lacks**. That is R4.
 
 R3 is **structurally blind to missing features**: a feature that doesn't exist leaves nothing to
 enumerate. So run four sweeps — **once, for the whole product, at setup** (§2.1), filing each finding
-under its module. Before writing a module's catalogue, re-read that module's findings; re-run the
+under its module. *The whole product* is the app under test plus the shared modules it depends on —
+in a repository of several standalone apps, not the whole repository (a sweep run repo-wide returned
+391 hits, half of them another app's; audit). Before writing a module's catalogue, re-read that module's findings; re-run the
 sweeps for it only if its code changed since. Each sweep is a **grep for candidates followed by a
 fixed discard list** — reproducible, but not judgement-free, and the discard list is part of the
 rule:
@@ -181,9 +189,9 @@ rule:
 | # | Sweep | How | Discard | Catches |
 |---|---|---|---|---|
 | **S1** | Data held but never shown | For each field of your domain models / UI state, grep for references in the UI layer. Zero references = candidate. Also **values the screen computes and decides with but never states** — today's date on a calendar, the one-year window it asks the server for — which no grep of fields finds (measured). | fields that are ids, timestamps, or sync bookkeeping; credentials and session tokens (never shown by design) | A settings screen that never says which server or user you're connected to |
-| **S2** | Dead control | Empty or TODO handlers, *including* empty lambdas passed down as arguments: Compose `grep -rnE 'onClick *= *\{ *\}|\w+ *= *\{ *\}|/\* *TODO' --include='*.kt'`; web `grep -rnE '=\{\(\) *=> *\{\}\}|href="#"' --include='*.tsx'`; SwiftUI `grep -rn 'action: {}' --include='*.swift'`. Then routes: every `navigate(x)` has a matching destination. | previews, read-only chips, disabled placeholders; an empty **default value** in a function's signature (`onClick: () -> Unit = {}`) — for those, follow the callers: a candidate only if a real screen leaves it empty | "Privacy Policy" and "Help" buttons that do nothing (a store blocker) |
+| **S2** | Dead control | Empty or TODO handlers, *including* empty lambdas passed down as arguments: Compose `grep -rnE 'onClick *= *\{ *\}|\w+ *= *\{ *\}|/\* *TODO' --include='*.kt'`; web `grep -rnE '=\{\(\) *=> *\{\}\}|href="#"' --include='*.tsx'`; SwiftUI `grep -rn 'action: {}' --include='*.swift'`. Then routes: every `navigate(x)` has a matching destination. | previews and showcase modules — **filter them mechanically**, they are most of the hits: a candidate inside a `@Preview` function is not a dead control (walk back from the enclosing `fun` through its annotation lines); read-only chips, disabled placeholders; an empty **default value** in a function's signature (`onClick: () -> Unit = {}`) — for those, follow the callers: a candidate only if a real screen leaves it empty | "Privacy Policy" and "Help" buttons that do nothing (a store blocker) |
 | **S3** | Expected absence | **Enumerate REF (R5), not your imagination**: walk the reference implementation's navigation, settings and menus and write down every feature name; grep your code for each term; zero files = absent. | features REF has that are out of scope *by written decision* — **while the code still agrees**. A written decision the code has since contradicted ("out of scope" in the README, built by a later commit) is not a discard: it goes to the queue as "which decision stands" | No quota, no licences, no changelog, no clear-cache |
-| **S4** | Stuck when something fails | Controls that work when everything goes right and never recover when something goes wrong. Find where work starts — a flag set to true, a `Loading` state, a button disabled — and check each is undone on the **failure** path too, not only on success. Then error handlers that are empty or only log, searched **across lines**. Commands below the table. Drive each candidate with the network cut or the server stopped. | undone in a `finally`, or by one state that covers both outcomes | A spinner nothing ever clears after the server says no; a save button that stays disabled |
+| **S4** | Stuck when something fails | Controls that work when everything goes right and never recover when something goes wrong. Find where work starts — a flag set to true, a `Loading` state, a button disabled — and check each is undone on the **failure** path too, not only on success. Then error handlers that are empty or only log, searched **across lines**. Commands below the table. Drive each candidate with the network cut or the server stopped. | undone in a `finally`, or by one state that covers both outcomes; clean-up, close and stop handlers with no UI behind them | A spinner nothing ever clears after the server says no; a save button that stays disabled |
 
 The S4 searches, Kotlin first. Each misses something if you narrow it: `ing *= *true` alone missed
 `_isRefreshing.value = true` and sealed `Loading` states, and a one-line `catch {}` grep found **0**
@@ -191,11 +199,18 @@ on a codebase with 16 empty or log-only handlers, because formatted code puts th
 line (measured):
 
 ```bash
-# where work starts — then check each one is undone when it fails
-grep -rnE 'ing *= *true|\.value *= *true|Loading\b|enabled *= *!' --include='*.kt' .
+# where work starts, PRECISION first: the names that mean "something is running"
+grep -rnE '(isLoading|isRefreshing|isSyncing|isSaving|isSending|inProgress|_loading|_refreshing)[A-Za-z]* *(\.value)? *= *true' --include='*.kt' .
+# …then RECALL, when the precise list comes back thin — noisier by an order of magnitude
+grep -rnE 'ing *= *true|\.value *= *true|enabled *= *!' --include='*.kt' .
+grep -rnE '(emit|value|update) *[({].*Loading' --include='*.kt' .          # sealed Loading states
 # empty or log-only error handlers, across lines (-U lets a match span lines)
-rg -U -n 'catch\s*\([^)]*\)\s*\{\s*((Log\.\w+|println|Timber\.\w+|logger\.\w+)\([^)]*\)\s*)?\}' --glob '*.kt' .
+# -c counts LINES, not matches: `rg -U -n … | wc -l` said 128 where there were 44 (audit). Count the
+# `file:line:` prefixes instead, and read them — the list is meant to be read, not totalled.
+rg -U -n 'catch\s*\([^)]*\)\s*\{\s*((//[^\n]*|/\*.*?\*/|(Log\.\w+|println|Timber\.\w+|logger\.\w+|\w+\.printStackTrace)\s*\([^()]*(\([^()]*\))?[^()]*\))\s*)*\}' --glob '*.kt' .
 rg -U -n 'onFailure\s*\{\s*\}' --glob '*.kt' .                                   # Kotlin Result
+rg -n 'runCatching\b' --glob '*.kt' .        # then check each one's Result is consumed:
+                                             # onFailure|getOr|exceptionOrNull|fold in the lines after it
 rg -U -n 'catch\s*\{\s*\}' --glob '*.swift' .                                     # Swift
 rg -U -n '\.catch\(\s*\(\s*\w*\s*\)\s*=>\s*\{\s*\}\s*\)' --glob '*.{ts,tsx,js}' .  # JS
 # no ripgrep: perl -0777 reads a whole file at once, so the same pattern can span lines
@@ -272,7 +287,17 @@ Four ways the UI oracle says less than it seems, all measured:
 which. Online, API decides. Offline, STORE's pending queue decides and API is consulted only after
 the drain. When the API contradicts *itself* (a list endpoint says one thing, the item endpoint
 another), the outcome of a **write** is the oracle, and the read quirk goes into the adapter's
-quirk list.
+quirk list. **A backend that acknowledges before it shows the change** is not a disagreement yet: the
+adapter re-reads until the two agree or a recorded limit passes (say which in the finding), and only
+then is it a finding. Note the lagging endpoint in the adapter's quirk list too — knowing which ones
+settle late is worth as much as the defect.
+
+**Permissions are a screen too.** Every dangerous permission in the manifest is a flow: the screen
+that asks, what the app does when it is denied, what it does when "don't ask again" leaves only the
+system settings, and what happens when it is taken away between runs. Revoking one with
+`pm revoke <pkg> <perm>` also **kills the app's process**, so it is a process death and a relaunch
+(R9) — drive it that way, and use `tap --any-app` for the system dialog, which belongs to the OS, not
+the app.
 
 **When it is unclear what the product should do, REF decides** — open it, look, copy the behaviour.
 What REF does not settle, or where REF looks wrong, is a product decision: R2 queue, not a guess.
@@ -360,8 +385,9 @@ campaign that only ever logs in as the owner has not tested permissions at all.
 **Roles are permissions too.** An owner and a read-only visitor, an admin and a member: each role
 gets its own account, and each is tested for what it can do *and* for what it must not — the
 read-only account's write is refused by the server, and the app says so instead of pretending. The
-account with the fewest rights is the negative pair. Skip B and C only when the product has **neither
-sharing nor roles**.
+account with the fewest rights is the negative pair. **B is needed wherever the app can have more
+than one signed-in identity**, sharing or no sharing; only a product with a single fixed account has
+nothing to leave behind. C goes when there is nothing to be denied — no sharing and no roles.
 
 **A second account is still needed whenever the app keeps anything per account** — a session, a
 cache, a search, a log — even on a backend where every account sees the same data. There B is not
@@ -513,6 +539,9 @@ own way — so the setup gate builds it. It is two questions.
 3. **A debug-only launch argument** that accepts a token — app code, development builds only, and
    **only for a token that is ordinary test input**: one minted on a disposable server you run, or a
    declared test identifier. A real server's token never goes on a command line (above).
+3b. **A credential read from hardware** — an NFC card, the IMEI, a serial: the emulator cannot
+   produce it. Inject the session it results in (1–3), ask at setup whether the **server** also checks
+   the device, and put the real tap on a physical test phone in the queue.
 4. **Log in once by hand and snapshot the device** — the human signs in, the emulator or
    simulator is snapshotted logged-in, and every run starts from that snapshot. This is the answer
    for iCloud, two-factor and anything else with no programmatic path.
@@ -653,6 +682,15 @@ which reads like a broken command. And **a task that never reached the device is
 green**: a module that failed with *"No compatible devices connected"* inside an otherwise green run,
 with the device connected, ran nothing (measured). Run that module alone and report both runs.
 
+**A test that fails and then passes** within the same gate is not noise to be dropped: name it by id
+in the suite line — *"1.103 passed, 2 passed on a rerun: `<ids>`"* — and file it as a finding (P2,
+unless what it failed on is the product's). Excluding it from the run hides exactly what a campaign
+exists to see.
+
+**On a repository with several application modules**, the suite is the app under test plus every
+module downstream of what the fix touched — read that from the build files, run them as named tasks,
+and say in the report which modules were left out and why.
+
 ### R14 — Every change to the local store ships with its migration, and the migration with a test
 
 If the client persists anything, a released version has users with data in the **old** shape. A
@@ -705,7 +743,11 @@ one is earlier QA work for it (step 3).
 
 **Look first, then ask once.** Good questions need facts, so setup starts by **looking without
 touching**: which AVDs exist and which are already running (`ui.py avds`), whether the server
-answers, what the manifest and the build files say, and **what QA work the repo already has** — test
+answers, what the manifest and the build files say, **whether the release build is even shippable**
+— three commands: its version number against the highest one already published from any branch, the
+signing key present (`apksigner verify --print-certs` on the last published artefact against the
+local key), and the release variant building and launching once — and **what QA work the repo already
+has** — test
 plans, an earlier campaign's reports, QA scripts, a client for the server, test credentials kept in
 some file (steps 3 and 6). "Before anything else" in step 1 means before *changing* anything, not
 before looking.
@@ -715,10 +757,14 @@ tools take four, and a second round gets skipped:
 
 1. **Fix mode** (step 1);
 2. **Commits**, and where the campaign docs live (step 1);
-3. **Devices** — propose one from what you saw, and name the ones that are busy or off-limits (step 5);
+3. **Devices** — propose one from what you saw, and name the ones that are busy or off-limits
+   (step 5); **which app**, when the repo holds several; and **which build users get** (a store
+   release, a flavor, or the debug build a device manager pushes), because that decides how findings
+   are rated (§2.3);
 4. **Server and accounts** — which server, whether it holds real data, which account for each role
    (step 3). Test data defaults to *"only what the campaign creates, marked `QA_`, is touched"*;
-   say so in the question, and the human corrects it only if something else must be protected.
+   say so in the question, and the human corrects it only if something else must be protected. Name
+   here too any **outbound channel that fires on its own** (R10) and ask for its off switch.
 
 1. **Ask two questions, once, before changing anything** — in the setup round above — and record
    the answers at the top of `CAMPAIGN.md`. Never ask them again per finding.
@@ -878,6 +924,7 @@ file:line, and its status. Severity, the same everywhere in the campaign:
 |---|---|
 | **P0** | data loss, **a security hole** — a password, a session token or private data readable by someone or something that shouldn't have it (another app, a backup, a log) — or a state the user cannot recover from |
 | **P1** | the user is lied to (told "saved" when it wasn't), or blocked with no workaround |
+| **P1** | it stops the release: a store or fleet requirement the build does not meet (a missing privacy policy, a dead "Help" link the review checks, a version below what is already published). It blocks everyone, and there is no workaround |
 | **P2** | a workaround exists, or it is cosmetic. Harness `a11y` warnings (small target, unnamed icon) are P2 unless they block a flow. Hardening that exposes nothing by itself (a too-wide file-sharing path, a session not revoked on the server) is P2 |
 
 **A secret in the system log** is **P0** when anyone but the developer collects logs from the devices

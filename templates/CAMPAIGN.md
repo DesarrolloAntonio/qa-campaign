@@ -33,6 +33,7 @@ shape that matters is *gate per process*.
 | … | `<second form factor / window size>` | layout, navigation, `<orientations or window sizes>`; **state that lives in a pane** — delete, sign out or share away what a detail pane is showing | `<secondary target>` | no dead ends specific to this layout; nothing left in a pane after it's gone |
 | … | Offline / degraded — *only at full depth; delete otherwise* | every write queued and drained; nothing lost, nothing lied about | `<primary target>` | STORE and API agree after the network returns |
 | … | Multi-context | same account in two places (the second client is the API adapter — the web needs a typed login); **B** and **C** for anything shared, one account per role (R7) — *delete only if nothing is shared and there are no roles* | `<both>` | conflicts, prunes and permissions verified on each side |
+| … | Minimum OS | the shell, plus every inventory row that depends on a permission or an API level, on an emulator at the app's **minSdk** | `<min-version device>` | nothing crashes and nothing is unreachable at the oldest version the app claims to support |
 | … | Release build | **earlier processes re-driven where a later fix touched their module**, signed/minified artefact, **version number above the highest one shipped from any branch**, size and packaging checks, smoke test, **upgrade in place** over the previous release with data (R14) — previous release built from its tag with the same key; **the real login again** (queue it now: not debuggable, no injection, no STORE) | `<primary target>` | the release artefact runs and upgrades |
 | … | Publication gate | store/host requirements, policy, branding | — | `<store or host>` accepts it |
 
@@ -51,7 +52,8 @@ shape that matters is *gate per process*.
 | B | recipient — receives the shares, or a role with fewer rights *(one row per role)* |
 | C | negative control — receives nothing, or the role with the fewest rights |
 
-*Delete B and C only if nothing is shared **and** there are no roles (R7).*
+*B stays wherever the app can have more than one signed-in identity — it is what one session leaves
+for the next. Delete C only when there is nothing to be denied: no sharing and no roles (R7).*
 
 What signs each account in — a password, an app password, or a token made with the server's secret —
 lives in `qa.credentials.json` (gitignored in this repo; `<generated from <file> — regenerate when that
