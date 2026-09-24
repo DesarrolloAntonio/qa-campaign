@@ -28,6 +28,27 @@ class Reach(Case):
         self.assertSaid(r, "not the same as unreachable")
 
 
+class BlamingTheApp(Case):
+    """R8: "I could not check" must never be reported as "the app cannot reach it"."""
+
+    def test_a_runas_context_that_resolves_nothing_is_not_proven(self):
+        # Measured on an API 37 emulator: `run-as` resolved no name at all — a control name failed
+        # exactly like the test server — while the app was talking to the server the whole time.
+        r = self.run_net("reach", STUB_NC_APP=1, STUB_NC_APP_ERR="nc: bad address 'qa.example.com': "
+                                                                 "No address associated with hostname",
+                         STUB_NC_CONTROL=1, STUB_NC_EXIT=0, STUB_HTTP="HTTP/1.1 200 OK")
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "NOT PROVEN as the app")
+        self.assertSaid(r, "the device's shell user")
+
+    def test_an_app_that_really_is_blocked_is_still_reported(self):
+        r = self.run_net("reach", STUB_NC_APP=1, STUB_NC_APP_ERR="nc: bad address 'qa.example.com': "
+                                                                 "No address associated with hostname",
+                         STUB_NC_CONTROL=0, STUB_NC_EXIT=0)
+        self.assertEqual(1, r.returncode)
+        self.assertSaid(r, "block that address")
+
+
 class Offline(Case):
     def test_offline_is_proved_from_the_apps_side_too(self):
         r = self.run_net("off", STUB_AIRPLANE=1, STUB_VALIDATED="no", STUB_NC_EXIT=1)
