@@ -87,13 +87,17 @@ preferences file can hold a list of pending changes (full). The clues that decid
 
 - **a queue of pending writes** — a background job that sends changes later (WorkManager,
   BackgroundTasks, Background Sync), or a *pending / dirty / syncStatus* field in the stored data →
-  **full**;
+  **full**. It has to carry the **user's own writes**: a shared logging or telemetry worker is not an
+  offline-first store, and counting it marked every app in a repository "full" (audit);
 - **screens read the local copy first** and refresh from the server afterwards, *and* edits land
   locally before the server answers → **full**;
 - local reads but every edit waits for the server → **short** (a cache);
 - network calls and nothing stored beyond settings and the session → **short**.
 
-When the clues disagree, take the deeper level. At either depth, **test the recovery on its own**:
+When the clues disagree, take the deeper level. **An outbox nobody reads back** — writes queued and
+sent, never shown again — is full depth without conflicts: what replaces the conflict and mix checks
+is the retry policy against duplicates (unique work, KEEP vs REPLACE), whether the input the job
+needs is still there when it finally runs, and what the user is shown when it gives up. At either depth, **test the recovery on its own**:
 "it says it can't reach the server" and "it works again when the network returns" are two checks. A
 map said the first and never did the second — the P1 was in the half that's easy to skip (measured).
 
@@ -281,7 +285,10 @@ Four ways the UI oracle says less than it seems, all measured:
 which. Online, API decides. Offline, STORE's pending queue decides and API is consulted only after
 the drain. When the API contradicts *itself* (a list endpoint says one thing, the item endpoint
 another), the outcome of a **write** is the oracle, and the read quirk goes into the adapter's
-quirk list.
+quirk list. **A backend that acknowledges before it shows the change** is not a disagreement yet: the
+adapter re-reads until the two agree or a recorded limit passes (say which in the finding), and only
+then is it a finding. Note the lagging endpoint in the adapter's quirk list too — knowing which ones
+settle late is worth as much as the defect.
 
 **When it is unclear what the product should do, REF decides** — open it, look, copy the behaviour.
 What REF does not settle, or where REF looks wrong, is a product decision: R2 queue, not a guess.
@@ -661,6 +668,15 @@ unchanged inputs (last green at `<commit>`)."* When a process changed no code, t
 which reads like a broken command. And **a task that never reached the device is not
 green**: a module that failed with *"No compatible devices connected"* inside an otherwise green run,
 with the device connected, ran nothing (measured). Run that module alone and report both runs.
+
+**A test that fails and then passes** within the same gate is not noise to be dropped: name it by id
+in the suite line — *"1.103 passed, 2 passed on a rerun: `<ids>`"* — and file it as a finding (P2,
+unless what it failed on is the product's). Excluding it from the run hides exactly what a campaign
+exists to see.
+
+**On a repository with several application modules**, the suite is the app under test plus every
+module downstream of what the fix touched — read that from the build files, run them as named tasks,
+and say in the report which modules were left out and why.
 
 ### R14 — Every change to the local store ships with its migration, and the migration with a test
 
