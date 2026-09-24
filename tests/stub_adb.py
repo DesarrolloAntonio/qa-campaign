@@ -18,6 +18,10 @@ on the allow-list.
     STUB_HTTP                   the status line the HTTP probe gets back; empty = silence
     STUB_RUNAS=yes|no           is the app debuggable (`run-as <pkg> id`)
     STUB_EMU                    what the emulator console answers (`OK`, `KO: …`)
+    STUB_DENSITY                `wm density` output; empty = unreadable
+    STUB_DISPLAYS               `dumpsys window displays` output; empty = unreadable
+    STUB_WM_SIZE                `wm size` output; empty = unreadable
+    STUB_PACKAGES               comma-separated installed packages, for `pm list packages <prefix>`
     STUB_IME                    `dumpsys window InputMethod` output
 """
 import os
@@ -90,14 +94,19 @@ if cmd.startswith("dumpsys activity activities"):
     front = env("STUB_FRONT", "com.example.app")
     out(f"  topResumedActivity=ActivityRecord{{abc u0 {front}/.MainActivity t42}}")
 if cmd.startswith("dumpsys window displays"):
-    out("Display: mDisplayId=0\n  init=1080x2400 420dpi cur=1080x2400 app=1080x2400\n"
-        "Display: mDisplayId=1\n  init=1920x1200 240dpi cur=1920x1200 app=1920x1200")
+    out(env("STUB_DISPLAYS",
+            "Display: mDisplayId=0\n  init=1080x2400 420dpi cur=1080x2400 app=1080x2400\n"
+            "Display: mDisplayId=1\n  init=1920x1200 240dpi cur=1920x1200 app=1920x1200"))
 if cmd.startswith("dumpsys window InputMethod"):
     out(env("STUB_IME", "isVisible=false"))
 if cmd.startswith("wm density"):
-    out("Physical density: 420")
+    out(env("STUB_DENSITY", "Physical density: 420"))
 if cmd.startswith("wm size"):
-    out("Physical size: 1080x2400")
+    out(env("STUB_WM_SIZE", "Physical size: 1080x2400"))
+if cmd.startswith("pm list packages"):
+    prefix = cmd.split()[-1] if len(cmd.split()) > 3 else ""
+    installed = [p for p in env("STUB_PACKAGES", "com.example.app").split(",") if p.startswith(prefix)]
+    out("\n".join(f"package:{p}" for p in installed))
 if cmd.startswith("uiautomator dump"):
     if env("STUB_DUMP") and os.path.isfile(env("STUB_DUMP")):
         out(f"UI hierchary dumped to: {args[-1]}")

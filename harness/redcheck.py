@@ -16,7 +16,16 @@ original is).
 
 `--test` is an identity, not a search: it matches the class, its last segment, or `Class.method`, and
 every report file it was counted from is printed. Two different classes answering to it is a NOT RUN,
-because the colour would be a mix of both.
+because the colour would be a mix of both; so is the same class answering red in one report file and
+green in another. The full identity of a regression test is **task + report file + class + method**:
+`--test` gives the last two and the printed path gives the first two, and `--reports <dir>` narrows the
+search to one task or source set when a name is shared.
+
+A report is this run's only if the command changed it **and** its own timestamp is not older than the
+run (runners write one; Gradle does). That catches a file this run *touched* rather than wrote — a
+restore, a sync, an editor save. It cannot catch another runner writing a fresh report for the same test
+at the same time: for that, every report file counted has to agree on the colour, which is checked, and
+anything else written during the run is named.
 
 `--break FILE OLD NEW` makes the break for this run and undoes it afterwards: OLD must appear exactly
 once in FILE, and the file is written back byte for byte and checked — after this script's own
@@ -36,6 +45,7 @@ below the working directory, and every `outputs/androidTest-results`, where test
 theirs). Only report files the command created or changed count.
 """
 import argparse
+import datetime
 import glob
 import hashlib
 import re
@@ -43,6 +53,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import tempfile
 import xml.etree.ElementTree as ET
 
@@ -72,6 +83,10 @@ def apply_breaks(breaks):
         for path, old, new in breaks or []:
             if old == new:
                 refuse(f"--break {path}: OLD and NEW are the same — that breaks nothing")
+            if re.sub(r"\s+", "", old) == re.sub(r"\s+", "", new):
+                # A break that only moves spaces compiles, runs, and leaves the test green — which reads
+                # as "the test won't go red" when what happened is that nothing was mutated.
+                refuse(f"--break {path}: OLD and NEW differ only in whitespace — that mutates nothing")
             if not os.path.isfile(path):
                 refuse(f"--break {path}: no such file")
             data = open(path, "rb").read()
@@ -162,9 +177,33 @@ def matches_filter(classname, name, name_filter):
             or f == name)
 
 
-def reports_written_since(roots, before, name_filter):
+# How far a report's own clock may sit before this run started before it stops counting. Generous on
+# purpose: a wrong guess here turns a real red into NOT RUN.
+STALE_MARGIN_S = 120
+
+
+def suite_time(root):
+    """The report's own start time, when the runner wrote one (Gradle does).
+
+    The mtime only says the file changed while this run was going: a restore, an rsync, an editor save
+    or another build touching an old report all do that, and the result would be read as this run's.
+    The suite's own timestamp is the runner's word for when it ran. What this does NOT catch is another
+    runner writing a *fresh* report for the same test at the same time — for that, the per-file colours
+    below have to agree, and `--reports` scopes the search to one task.
+    """
+    raw = (root.get("timestamp") or "").strip()
+    if not raw:
+        return None
+    try:
+        when = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when.timestamp()
+
+
+def reports_written_since(roots, before, name_filter, started):
     tests = failures = skipped = 0
-    messages, crashes, counted = [], [], {}
+    messages, crashes, counted, per_path, stale, others = [], [], {}, {}, [], []
     for root in roots:
         for path in glob.glob(os.path.join(root, "**", "*.xml"), recursive=True):
             st = os.stat(path)
@@ -176,11 +215,17 @@ def reports_written_since(roots, before, name_filter):
                 tree = ET.parse(path)
             except ET.ParseError:
                 continue
+            when = suite_time(tree.getroot())
+            if when is not None and when < started - STALE_MARGIN_S:
+                stale.append((path, when))
+                continue
+            here = [0, 0, 0, 0]                       # tests, failures, skipped, crashes in THIS file
             for case in tree.iter("testcase"):
                 cls, name = case.get("classname", ""), case.get("name", "")
                 if not matches_filter(cls, name, name_filter):
                     continue
                 tests += 1
+                here[0] += 1
                 # Every report the class was counted from, not just the first: the same class name in two
                 # modules, or one class run on two devices, look identical in the totals otherwise.
                 if path not in counted.setdefault(cls, []):
@@ -193,13 +238,22 @@ def reports_written_since(roots, before, name_filter):
                     line = f"{name}: {first[0][:160] if first else '(no message)'}"
                     if is_assertion(bad.get("type")):
                         failures += 1
+                        here[1] += 1
                         messages.append(line)
                     else:
                         # R6: a crash before the check is not the test saying "expected this, got that".
                         crashes.append(f"{line}  [{bad.get('type') or 'no type'}]")
+                        here[3] += 1
                 elif case.find("skipped") is not None:
                     skipped += 1
-    return tests, failures, skipped, messages, crashes, counted
+                    here[2] += 1
+            if here[0]:
+                per_path[path] = tuple(here)
+            elif next(tree.iter("testcase"), None) is not None:
+                # A report written during this run that holds none of the test you named: something else
+                # is running tests here, and the next one it writes could be for the same class.
+                others.append(path)
+    return tests, failures, skipped, messages, crashes, counted, per_path, stale, others
 
 
 def main():
@@ -229,6 +283,7 @@ def main():
 def judge(a, cmd):
     roots = a.reports or default_roots()
     before = snapshot(roots)
+    started = time.time()
     try:
         run = subprocess.run(cmd, capture_output=True, text=True, timeout=a.timeout)
         output, code = run.stdout + run.stderr, run.returncode
@@ -240,7 +295,17 @@ def judge(a, cmd):
     if not a.reports:
         roots = default_roots()
 
-    tests, failures, skipped, messages, crashes, counted = reports_written_since(roots, before, a.test)
+    (tests, failures, skipped, messages, crashes, counted,
+     per_path, stale, others) = reports_written_since(roots, before, a.test, started)
+    for path, when in stale:
+        print(f"   ignored {path}: the report says it ran at "
+              f"{time.strftime('%H:%M:%S', time.localtime(when))}, before this run started — this run "
+              "touched the file, it did not write it")
+    if others:
+        print(f"   note: {len(others)} report file(s) changed during this run with no test matching "
+              f"{a.test!r} ({os.path.basename(others[0])}…) — something else is writing reports here "
+              "(another Gradle, the IDE, a watcher). Scope with --reports if a colour looks wrong.",
+              file=sys.stderr)
     for cls, paths in sorted(counted.items()):
         for path in paths:
             print(f"   counted {cls} from {path}")
@@ -256,6 +321,14 @@ def judge(a, cmd):
     if cached:
         print(f"NOT RUN: the task came FROM-CACHE, so the report on disk is a restored one, not this run's "
               f"({cached[0].strip()[:120]}). Re-run with --rerun --no-build-cache.")
+        sys.exit(2)
+    reds = sorted(p for p, (t, f, s, c) in per_path.items() if f)
+    greens = sorted(p for p, (t, f, s, c) in per_path.items() if not f and t > s)
+    if a.test and reds and greens:
+        # The same test, two report files, two different answers — two variants, two source sets or two
+        # devices. Summing them gives whichever colour was asked for; neither file is the test's verdict.
+        print(f"NOT RUN: two report files for --test {a.test!r} disagree — red in {reds[0]}, green in "
+              f"{greens[0]}. Name the one task you mean with --reports, and look at why they differ.")
         sys.exit(2)
     if a.test and len(counted) > 1:
         # `--test Foo` names ONE test. Two classes answering to it are two different tests — sibling
@@ -299,6 +372,14 @@ def judge(a, cmd):
         print(f"GREEN: {tests - skipped} passed{f', {skipped} skipped' if skipped else ''}, from reports this run wrote")
         print("   A green is the runner's verdict, not proof the test exercised the behaviour: an early `return`, a "
               "swallowed exception or a missing assertion all pass. The red you saw first is what proves it (R6).")
+        if a.breaks:
+            # "I broke it and it stayed green" is read as "this test won't go red". It means one of two
+            # things, and neither is the code being right: the mutation missed what the test checks, or
+            # the test does not cover it. Applied is not validated.
+            print("   ⚠️ MUTATION NOT VALIDATED: the break was applied, it compiled, the test ran — and "
+                  "nothing failed. That is not evidence the code is right: either the mutation did not "
+                  "touch what this test asserts, or the test does not cover it. Break the line its own "
+                  "assertion depends on, and if it still passes, the test is the finding.")
     sys.exit(0 if result == a.expect else 1)
 
 

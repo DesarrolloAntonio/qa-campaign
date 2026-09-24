@@ -99,6 +99,45 @@ class Guards(Case):
         self.assertSaid(r, "did not answer")
 
 
+class Measurements(Case):
+    """The harness never replaces a measurement it could not take with a plausible number."""
+
+    def test_an_unreadable_density_is_unproven_not_420(self):
+        r = self.run_ui("a11y", STUB_DUMP=self.with_dump(TWO_ROWS), STUB_DENSITY="")
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "UNPROVEN")
+        self.assertNotIn("420", r.stdout)
+
+    def test_an_unreadable_screen_size_is_unproven_not_1080x2400(self):
+        flat = HEAD + node("android.widget.FrameLayout", (0, 0, 0, 0),
+                           children=row("QA_Item1", 200)) + TAIL
+        r = self.run_ui("tap", "text=Delete", STUB_DUMP=self.with_dump(flat),
+                        STUB_DISPLAYS="", STUB_WM_SIZE="")
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "UNPROVEN")
+        self.assertNoInput("a tap needs coordinates, and there were none to read")
+
+
+class WhichApp(Case):
+    """R8: what the tree says is only evidence if it belongs to the app under test."""
+
+    def test_a_prefix_that_matches_two_installed_apps_is_refused(self):
+        self.write_config(android={"package": PKG, "packagePrefix": "com.example"})
+        r = self.run_ui("dump", STUB_DUMP=self.with_dump(TWO_ROWS),
+                        STUB_PACKAGES="com.example.app,com.example.other")
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "matches 2 installed packages")
+        self.assertSaid(r, "packagePrefix")
+
+    def test_an_explicit_list_of_packages_is_taken_as_given(self):
+        self.write_config(android={"package": PKG, "packagePrefix": [PKG, PKG + ".debug"]})
+        r = self.run_ui("tap", "text=Delete", "--index", "0", STUB_DUMP=self.with_dump(TWO_ROWS),
+                        STUB_PACKAGES="com.example.app,com.example.other")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual([], [c for c in self.adb_calls() if "pm list packages" in c],
+                         "a list needs no guessing, so the device is not asked")
+
+
 class Secrets(Case):
     """R11: the STORE and LOG oracles never print a credential."""
 

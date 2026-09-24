@@ -25,6 +25,9 @@ One platform at a time. Within a platform: the shell, then one process per modul
 second device or account), then the build — the order R1 gives. Add and remove rows freely; the
 shape that matters is *gate per process*.
 
+A gate closes on what was **proved**: anything its criterion needed and nobody could tell is written
+down as **unproven** and keeps it open, or goes to the queue as itself (R1).
+
 | # | Process | Area | Where | Gate |
 |---|---|---|---|---|
 | 00 | Setup | harness, fixtures, session injection, absence sweeps for the whole product (§6) | — | the harness drives the app and reads its store, and the app on the device reaches the server (`net.sh reach`) |

@@ -119,6 +119,16 @@ human's answer can change it. When **the gate's own criterion** depends on the h
 point reachable" needs them signed in to another app — close it **assuming the queue item**, name the
 item in the log, and reopen when the answer comes back different (R2).
 
+**UNPROVEN is a result, and it never closes a gate.** Three outcomes look alike in a report and are
+not: it works, it is broken, and *nobody could tell*. The third one gets written down with that word,
+in the report, next to what it was about. The harness says it too, in its own vocabulary — a refusal,
+`NOT RUN`, `NOT PROVEN`, `UNPROVEN` — and none of those is a pass. What produces one: a selector that
+matched two different controls, a measurement the device would not give (a density, a screen size), an
+oracle that was not available, a report whose origin can't be pinned to this run, a mutation that
+changed nothing, a candidate nobody could drive, a flow that needs an account you don't have. An
+unproven item either keeps the gate open or goes to the human queue as itself (R2) — turning one into
+a pass, quietly, is the cheapest way there is to make a whole campaign worthless.
+
 ### R2 — Defer everything that needs the user
 
 Anything that needs a human — a real login, a physical device, a product decision, any
@@ -363,7 +373,21 @@ after the run started. Measured twice in a row: a break re-applied after a resto
 UP-TO-DATE, and the report on disk was the previous run's. **In shared code, name the target:** a
 Kotlin Multiplatform test has an Android task and an iOS task, and a final run re-ran only the iOS one
 while the Android copy of the very test the fix added was up to date (measured) — the green you report
-says which target ran it.
+says which target ran it. The whole identity of a regression test is **task + report file + class +
+method**: `--test` gives the last two, the report path `redcheck.py` prints gives the first two, and
+`--reports <dir>` narrows the search to one task when a class name is shared. Two report files
+answering to one `--test` with different colours is NOT RUN, not a red.
+
+**A green is the runner's verdict, not the product's.** A test that returns early, swallows its
+exception, or ends in an assertion that cannot fail passes exactly like one that checks something.
+Nothing in a report distinguishes them — which is why the red comes first: *that* is what proves the
+test can see the behaviour. A green with no red behind it is an UNPROVEN dressed as a pass.
+
+**A break that was applied is not a mutation that was validated.** When you break the code and the
+test stays green, the honest reading is not "this test won't go red": it is one of two findings —
+the break missed what the test asserts, or the test does not cover it. Break the line its own
+assertion depends on; if it still passes, **the test is the finding**. `redcheck.py` refuses a break
+that only moves whitespace and says MUTATION NOT VALIDATED for the rest.
 
 **Check what the test touched.** A red is only as good as the element it acted on:
 - **a selector that can match twice** — two panes on screen, each with a back arrow of the same
@@ -926,6 +950,10 @@ tools take four, and a second round gets skipped:
     campaign has an offline gate at all.
 
 ### 2.2 Per process
+
+A gate closes on what the process **proved**. Anything its criterion needed and nobody could tell is
+written into the report as **unproven**, with what stopped you, and either keeps the gate open or goes
+to the human queue as itself (R1).
 
 1. **Inventory** the controls and entry points of the area under test (R3) — the first section of
    the process's file, `NN-<area>.md` (§2.1 step 4), in the shape of `templates/inventory.md`.
