@@ -1,7 +1,22 @@
 # qa-campaign
 
+[![skills.sh](https://www.skills.sh/b/DesarrolloAntonio/qa-campaign)](https://www.skills.sh/DesarrolloAntonio/qa-campaign)
+
 A Claude Code skill for running a **pre-release QA campaign** on a product you can drive from the
 command line — and, more importantly, a set of rules that stop the campaign from lying to you.
+
+```bash
+npx skills add DesarrolloAntonio/qa-campaign
+```
+
+Then, in the project you want to test: **`/qa-campaign`**. There is no prompt to write — the skill
+runs the interview itself, and nothing is touched until you have answered it.
+
+**Contents:** [What it gives you](#what-it-actually-gives-you) · [Before you run it](#before-you-run-it) ·
+[Start a campaign](#start-a-campaign) · [What it asks first](#what-it-asks-before-it-touches-anything) ·
+[How a campaign goes](#how-a-campaign-goes) · [Credentials](#credentials-and-why-it-never-types-your-password) ·
+[The fake server](#the-fake-server) · [Other platforms](#any-project-not-just-mobile) ·
+[The harness](#the-harness) · [Status](#status)
 
 It was used on one production release: a dozen gated processes, **79 defects found, 77 fixed** (the
 other two were product decisions). Every fix was verified in the running app; most carry a
@@ -45,25 +60,122 @@ So, every time:
 
 It is a tool that acts. **You run it at your own risk** — see the licence: no warranty of any kind.
 
-## Install
+## Start a campaign
+
+Install the skill once — either way works:
 
 ```bash
-git clone https://github.com/DesarrolloAntonio/qa-campaign ~/.claude/skills/qa-campaign
+npx skills add DesarrolloAntonio/qa-campaign                 # installs and links it for you
+git clone https://github.com/DesarrolloAntonio/qa-campaign ~/.claude/skills/qa-campaign   # or by hand
 ```
 
-Then, in the project you want to test:
+In the project you want to test:
 
 ```bash
 cp ~/.claude/skills/qa-campaign/qa.config.example.json qa.config.json
 printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore
 ```
 
-Setup writes the campaign's own `CAMPAIGN.md` — don't pre-copy the template: a blank one in the docs
-folder reads as a campaign that was never finished.
+Fill in `qa.config.json` — the scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
+everything else in there documents the plan for you and for the agent. Then, in Claude Code, **in that
+project**:
 
-Fill in `qa.config.json` (the scripts read `android.*`, `devices`, `managedDevices` and `campaign`; the rest documents the plan),
-write your backend adapter ([`adapters/README.md`](adapters/README.md)) with its credentials in
-`qa.credentials.json`, and ask Claude to run the campaign.
+```
+/qa-campaign
+```
+
+That is the whole entry point. There is no prompt to write: the skill runs the interview itself.
+
+Two things you do not have to prepare: the campaign writes its own `CAMPAIGN.md` (don't pre-copy the
+template — a blank one in the docs folder reads as a campaign that was never finished), and it writes
+the **credentials template** for you to fill in, if you don't have one yet.
+
+## What it asks before it touches anything
+
+The interview is the first gate. It asks, and waits:
+
+![The skill asking what a new campaign should cover, with three options and the cost of each](docs/img/interview-scope.png)
+
+
+- **which app and which build** — the flavor or variant users actually get, because severity is rated
+  for that one;
+- **which devices**, by alias — and only those: they go in `qa.config.json` and every script refuses
+  any other serial, so nothing lands on a work or personal phone;
+- **which accounts and which server** — a test server and test accounts, never production. It asks
+  what must not be touched, and treats everything already there as real data;
+- **how deep offline goes** — none, short or full — decided from the clues in your code, not by habit;
+- **fix mode** — fix the severe ones with a test seen red, or report only;
+- **where the work goes** — which branch, whether it may commit, and which folder the reports live in;
+- **what an earlier campaign left**, if there is one, so it doesn't re-find what you already fixed.
+
+Then it opens the setup gate: install and drive the app, read its store, prove the device reaches the
+server, run the absence sweeps. That gate closes only when the harness has *demonstrated* it can do
+those things — a campaign that starts on a harness nobody proved is how a gate closes on nothing.
+
+## How a campaign goes
+
+One **process** per area, each ending in a **gate** that has to close before the next one starts: the
+shell, then each module online, then a second context that can invalidate the first (another window
+size, offline, a second account), then the release build. Every finding gets a severity, and in fix
+mode every P0 and P1 is fixed with a regression test **watched failing first**.
+
+Three things happen along the way that are worth knowing about:
+
+- **It stops for you.** Anything that needs a human — a real login, a physical device, a product
+  decision, deleting real data — goes into one queue instead of interrupting every ten minutes. The
+  campaign keeps going around it.
+- **It says when it could not tell.** "It works", "it is broken" and *nobody could tell* are three
+  different results. The third is written down as **unproven** and never closes a gate.
+- **It reports its own mistakes.** Every campaign keeps a friction log of where the skill or the
+  harness guessed, lied, or was missing something — and that is what the next version is made of.
+
+When it closes you have, in `docs/qa/<date>/`: `CAMPAIGN.md` with the plan, the gates, the log and the
+queue; one report per process with its inventory, findings, the screenshots that were looked at and
+**what it did not cover**; the screenshots themselves; and `SKILL-FRICTION.md`. In the repository:
+one branch, commits per gate, each fix carrying the test that was seen red.
+
+## Credentials, and why it never types your password
+
+Credentials live in **`qa.credentials.json`**, gitignored, and **you** fill it in. If it isn't there,
+the skill writes the template with the keys it needs and stops until you have:
+
+```json
+{
+  "server": { "url": "https://qa.example.com" },
+  "accounts": {
+    "A": { "username": "<qa-user>", "password": "<app-password>" },
+    "B": { "username": "<qa-user-2>", "password": "<app-password>" }
+  }
+}
+```
+
+The agent never types a password into the app, never asks you for one in the chat, and never puts a
+password or a token on a command line, where the process list would show it (R11). What it does
+instead: the **adapter** reads that file to talk to your server as the API oracle, and the app's
+session is **injected** into the store the login would have written — or signed in against the fake
+server below. A real, typed login is a **queue item for you**, once, because only you can do it.
+
+The harness hides secret-looking values everywhere it prints: the store, the log, the request bodies
+of the fake server. If you have a field that is a credential in your product but doesn't look like
+one, name it in `android.secretKeys`.
+
+## The fake server
+
+Error paths need a server that fails on purpose, and **breaking the real one is not a test** (R10).
+[`harness/fake_server.py`](harness/fake_server.py) answers whatever you tell it to, and prints every
+request it got — so the report can show what the app actually sent:
+
+```bash
+fake_server.py --port 18099 --status 500                        # everything fails
+fake_server.py --port 18099 --status 401 --body '{"ok":false}'  # the session died
+fake_server.py --port 18099 --status 200 --delay 40             # answers too late
+fake_server.py --port 18099 --routes routes.json --status 404   # one route works, the rest don't
+```
+
+From an emulator, reach it with `adb reverse tcp:18099 tcp:18099` and `http://127.0.0.1:18099` in the
+app — and check it with `net.sh reach`, which asks **as the app** and speaks HTTP over the connection,
+because an open port is not a server: a dangling `adb reverse` accepts the connection with nothing
+behind it (measured on API 37).
 
 ## Any project, not just mobile
 
