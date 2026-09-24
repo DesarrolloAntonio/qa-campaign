@@ -52,7 +52,8 @@ shape that matters is *gate per process*.
 | B | recipient — receives the shares, or a role with fewer rights *(one row per role)* |
 | C | negative control — receives nothing, or the role with the fewest rights |
 
-*Delete B and C only if nothing is shared **and** there are no roles (R7).*
+*B stays wherever the app can have more than one signed-in identity — it is what one session leaves
+for the next. Delete C only when there is nothing to be denied: no sharing and no roles (R7).*
 
 What signs each account in — a password, an app password, or a token made with the server's secret —
 lives in `qa.credentials.json` (gitignored in this repo; `<generated from <file> — regenerate when that

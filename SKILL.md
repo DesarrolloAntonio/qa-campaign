@@ -46,7 +46,9 @@ trash, a shared note or a server quirk, read it as *"the kind of thing"*, and su
 
 ### R1 — Gates, not a checklist
 
-Split the product into **sequential processes** and put a **gate** at the end of each. What closes
+Split the product into **sequential processes** and put a **gate** at the end of each. A *module*
+here is a feature area of the product — a top-level destination and the screens under it — not a
+build module. What closes
 a gate depends on the **fix mode** chosen at setup (§2.1):
 
 - **Fix severe** *(default)* and **fix all**: every finding the mode covers is fixed and verified in
@@ -383,8 +385,9 @@ campaign that only ever logs in as the owner has not tested permissions at all.
 **Roles are permissions too.** An owner and a read-only visitor, an admin and a member: each role
 gets its own account, and each is tested for what it can do *and* for what it must not — the
 read-only account's write is refused by the server, and the app says so instead of pretending. The
-account with the fewest rights is the negative pair. Skip B and C only when the product has **neither
-sharing nor roles**.
+account with the fewest rights is the negative pair. **B is needed wherever the app can have more
+than one signed-in identity**, sharing or no sharing; only a product with a single fixed account has
+nothing to leave behind. C goes when there is nothing to be denied — no sharing and no roles.
 
 **A second account is still needed whenever the app keeps anything per account** — a session, a
 cache, a search, a log — even on a backend where every account sees the same data. There B is not
@@ -536,6 +539,9 @@ own way — so the setup gate builds it. It is two questions.
 3. **A debug-only launch argument** that accepts a token — app code, development builds only, and
    **only for a token that is ordinary test input**: one minted on a disposable server you run, or a
    declared test identifier. A real server's token never goes on a command line (above).
+3b. **A credential read from hardware** — an NFC card, the IMEI, a serial: the emulator cannot
+   produce it. Inject the session it results in (1–3), ask at setup whether the **server** also checks
+   the device, and put the real tap on a physical test phone in the queue.
 4. **Log in once by hand and snapshot the device** — the human signs in, the emulator or
    simulator is snapshotted logged-in, and every run starts from that snapshot. This is the answer
    for iCloud, two-factor and anything else with no programmatic path.
@@ -751,10 +757,14 @@ tools take four, and a second round gets skipped:
 
 1. **Fix mode** (step 1);
 2. **Commits**, and where the campaign docs live (step 1);
-3. **Devices** — propose one from what you saw, and name the ones that are busy or off-limits (step 5);
+3. **Devices** — propose one from what you saw, and name the ones that are busy or off-limits
+   (step 5); **which app**, when the repo holds several; and **which build users get** (a store
+   release, a flavor, or the debug build a device manager pushes), because that decides how findings
+   are rated (§2.3);
 4. **Server and accounts** — which server, whether it holds real data, which account for each role
    (step 3). Test data defaults to *"only what the campaign creates, marked `QA_`, is touched"*;
-   say so in the question, and the human corrects it only if something else must be protected.
+   say so in the question, and the human corrects it only if something else must be protected. Name
+   here too any **outbound channel that fires on its own** (R10) and ask for its off switch.
 
 1. **Ask two questions, once, before changing anything** — in the setup round above — and record
    the answers at the top of `CAMPAIGN.md`. Never ask them again per finding.
