@@ -65,6 +65,10 @@ ADB = None
 def _find_adb():
     """$ADB, then PATH, then the SDK env vars, then the macOS default — and refuse if none exists.
     The first version hard-coded the author's macOS path and died with a traceback elsewhere."""
+    if os.environ.get("ADB") and not os.path.isfile(os.environ["ADB"]):
+        # It used to fall through to PATH, so a typo in $ADB meant a different adb than the one the
+        # project's scripts use — and nothing said so (audit).
+        raise SystemExit(f"$ADB is {os.environ['ADB']!r}, which is not a file. Fix it or unset it.")
     candidates = [os.environ.get("ADB"), shutil.which("adb")]
     for var in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
         if os.environ.get(var):
@@ -142,7 +146,12 @@ def adb(*args, check=True, binary=False, timeout=60, with_stderr=False):
     if ADB is None:
         ADB = _find_adb()
     cmd = [ADB, *args]
-    res = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    try:
+        res = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # A traceback reads like a bug in the harness; this is the device not answering (R8).
+        raise SystemExit(f"adb {' '.join(args)} did not answer in {timeout}s — is the device still there? "
+                         "(`adb devices`; an emulator that is booting or swapping can take longer)")
     if check and res.returncode != 0:
         raise SystemExit(f"adb {' '.join(args)} → {res.returncode}: {res.stderr.decode(errors='replace').strip()}")
     if binary:
@@ -244,6 +253,10 @@ class Node:
         self.selected = a.get("selected") == "true"
         self.focused = a.get("focused") == "true"
         m = BOUNDS_RE.match(a.get("bounds", "[0,0][0,0]"))
+        if not m:
+            # Refuse rather than assume [0,0][0,0]: a 0×0 node reads as an off-screen element or a
+            # too-small touch target, which is the silent-wrong-answer class this file guards against.
+            raise SystemExit(f"unreadable bounds {a.get('bounds')!r} in the dump — read it again")
         self.x1, self.y1, self.x2, self.y2 = (int(v) for v in m.groups())
         self.depth = depth
         self.children = []
@@ -308,6 +321,9 @@ def dump(retries=4, windows=False):
         out = shell(*cmd, check=False, with_stderr=True)
         if "dumped to" in out:
             xml = shell("cat", f"{DEVICE_TMP}/qa_ui.xml")
+            # /data/local/tmp is world-readable: the screen's text (and whatever it showed) stayed on
+            # the device after every dump (audit).
+            shell("rm", "-f", f"{DEVICE_TMP}/qa_ui.xml", check=False)
             try:
                 root = ET.fromstring(xml)
             except ET.ParseError as e:
@@ -363,7 +379,9 @@ def matches(n, conds):
         if field is None:
             raise SystemExit(f"unknown selector key: {key}")
         if key == "id" and op == "=":
-            if field.split("/")[-1] != val:
+            # The part after the slash, or the whole resource-id: `id=com.x:id/title` matched nothing
+            # before, although that is what the dump prints (audit).
+            if field != val and field.split("/")[-1] != val:
                 return False
         elif op == "=":
             if field != val:
@@ -691,12 +709,15 @@ def app_log(pkg, lines=300, grep=None):
     out = adb("logcat", f"--pid={pids[0]}", "-t", str(lines))
     shown_any = False
     for line in out.splitlines():
-        if grep and grep.lower() not in line.lower():
-            continue
         # Hide inside the message only: the "Tag : " header reads like "key: value", and a tag named
         # RtrSession hid the word after it (measured here, on a fake log, before shipping).
         head = LOG_HEADER_RE.match(line)
-        print(head.group(1) + hide_secrets_in_text(head.group(2), inline=True) if head else hide_secrets_in_text(line, inline=True))
+        shown = (head.group(1) + hide_secrets_in_text(head.group(2), inline=True)) if head else hide_secrets_in_text(line, inline=True)
+        # Filter AFTER hiding: grepping the raw line let `--grep <the secret>` confirm a value by
+        # whether anything came back (audit). Grepping by key name still works on the hidden text.
+        if grep and grep.lower() not in shown.lower():
+            continue
+        print(shown)
         shown_any = True
     if not shown_any:
         print(f"(no log lines{' matching ' + repr(grep) if grep else ''} from pid {pids[0]})", file=sys.stderr)
@@ -843,6 +864,7 @@ def screenshot(name, outdir):
     args = ["screencap", "-p", remote] if not m else ["screencap", "-d", m.group(1), "-p", remote]
     shell(*args)
     adb("pull", remote, path)
+    shell("rm", "-f", remote, check=False)     # world-readable: don't leave screens behind (audit)
     # R8: a screenshot of the wrong display is not a screenshot. Its size has to be the screen's.
     size = png_size(path)
     if size and size != screen_size():
@@ -1177,12 +1199,14 @@ def ancestors(n):
 # (authToken → auth, token), so "author" or "passage" are not hidden.
 SECRET_PARTS = {"password", "passwd", "pass", "pwd", "passphrase", "secret", "token", "credential",
                 "credentials", "cookie", "auth", "authorization", "bearer", "jwt", "session", "apikey",
+                "otp", "totp", "mfa", "refresh", "passcode", "cvv", "oauth",
                 "pin",
                 # EncryptedSharedPreferences keeps its Tink keysets next to the values
                 # (`__androidx_security_crypto_encrypted_prefs_key_keyset__`): Keystore-wrapped, but key
                 # material all the same, and `file` printed them whole (measured).
                 "keyset"}
-SECRET_JOINED = ("apikey", "privatekey", "accesskey", "secretkey")
+SECRET_JOINED = ("apikey", "privatekey", "accesskey", "secretkey", "encryptionkey", "masterkey",
+                 "signingkey", "clientkey")
 # Project words that are credentials HERE — an NFC card id that signs a driver in, an employee number.
 SECRET_PARTS |= {w.lower() for w in (CONFIG.get("android", {}).get("secretKeys") or [])}
 JWT_RE = re.compile(r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}")
@@ -1376,11 +1400,21 @@ def pull_db(alias, pkg=DEFAULT_PKG):
 
 
 def query(path, sql):
-    """Runs `sql` on a local SQLite file and prints it, with secret-looking columns hidden (R11)."""
-    con = sqlite3.connect(path)
+    """Runs `sql` on a local SQLite file and prints it, with secret-looking columns hidden (R11).
+
+    Read-only, and it says so: an `update`/`delete` used to run against the **temp copy** pulled from
+    the device and print nothing, so it looked like a write that worked and changed nothing (audit).
+    """
+    if any(looks_secret(t) for t in re.findall(r"[A-Za-z_]\w*", sql)) and " as " in sql.lower():
+        raise SystemExit("a secret-looking column behind an alias or an expression can't be hidden — "
+                         "select it by its own name (R11)")
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         cur = con.execute(sql)
-        cols = [d[0] for d in cur.description or []]
+        if cur.description is None:
+            raise SystemExit(f"`db` only reads: {sql.split()[0].lower()!r} would change the copy pulled from "
+                             "the device, not the app's store. Drive the app to change its data (R10).")
+        cols = [d[0] for d in cur.description]
         rows = cur.fetchall()
     except sqlite3.Error as e:
         # A typo'd column used to end in a Python traceback; the database's own words are the answer.
