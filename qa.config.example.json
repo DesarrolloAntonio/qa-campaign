@@ -12,7 +12,7 @@
   "android": {
     "_readBy": "harness/android/ui.py",
     "package": "com.example.myapp.debug",
-    "_packagePrefix": "optional. What counts as 'the app' in the accessibility tree and the crash log. Without it, exactly `package`. Set it (e.g. com.example.myapp) only to count several variants as one app — a vendor-wide prefix also catches that vendor's other apps; a11y warns when it matches more than one installed package.",
+    "_packagePrefix": "optional. What counts as 'the app' in the accessibility tree and the crash log. Without it, exactly `package`. Prefer a LIST of exact names to count several variants as one app: [\"com.example.myapp\", \"com.example.myapp.debug\"]. A bare prefix string still works, but it is REFUSED when more than one installed package matches it — the vendor's other apps would read as this one's, and a flow driven in one would count as the other's.",
     "secretKeys": ["nfc", "idnummer"],
     "_secretKeys": "optional: words that are credentials in THIS product — an NFC card id that signs someone in, an employee number. db, file and log hide values whose key contains one.",
     "databases": {

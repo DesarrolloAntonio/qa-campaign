@@ -23,6 +23,12 @@ What they pin down is the **contract**, not the implementation:
 | refuse everything when there is no configuration | a harness with nothing configured must say so, never print "0 warnings" |
 | refuse input when another app is in front | the other campaign's app stays in the task stack |
 | never print a credential | the STORE and LOG oracles are evidence, and evidence gets pasted into reports |
+| refuse when it cannot read the density or the screen size | every dp figure and every tap coordinate comes from them; "assuming 420" is a measurement nobody took |
+| refuse a `packagePrefix` that matches two installed apps | the vendor's other app's screens would read as this one's |
+| ignore a report whose own timestamp predates the run | this run touching a file is not this run writing it |
+| refuse two report files for one test that disagree | neither is the test's verdict, and summing them gives whichever colour you asked for |
+| refuse a `--break` that only moves whitespace, and call a green under a break a mutation that proved nothing | "I broke it and it stayed green" is read as "this test won't go red" |
+| exit 3 when a `--break` cannot be undone | a source left broken is the worst thing this tool can leave behind |
 | treat an open port that answers no HTTP as **not reachable** | a dangling `adb reverse` accepts the connection with nothing behind it (measured on API 37) |
 | prove offline from the **app's** side, and name a fake server instead of calling it offline | airplane mode is Android's state, not the app's |
 | distinguish "adb lost the device" from "offline" | they look identical on a phone on Wi-Fi |

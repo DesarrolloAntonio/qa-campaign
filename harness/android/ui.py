@@ -33,7 +33,8 @@ with `--index N`, or `--any` to take the first on purpose. `--expect <sel>` on t
     ui.py installed --apk app/build/outputs/apk/debug/app-debug.apk   # is the device running this build?
 
 Configuration lives in `qa.config.json` (searched upwards from the working directory, or
-`QA_CONFIG`). Keys this script reads: `android.package`, `android.packagePrefix`,
+`QA_CONFIG`). Keys this script reads: `android.package`, `android.packagePrefix` (a LIST of exact
+package names, or a prefix — which is refused when it matches more than one installed app),
 `android.databases` (alias → file in databases/, or a path in the data folder), `android.files`
 (alias → path in the data folder), `devices` (alias → adb serial). Nothing project-specific here.
 
@@ -119,12 +120,41 @@ FILES = {k: v for k, v in ANDROID.get("files", {}).items() if not k.startswith("
 # unless `packagePrefix` says otherwise. The default used to be the first two segments — the vendor —
 # and on an emulator that also had another app by the same vendor, that app's screens counted as
 # this one's (measured).
-APP_PKG_PREFIX = ANDROID.get("packagePrefix") or ""
+# It can be a LIST of exact package names — the safe form — or a bare prefix, which is only accepted
+# while it matches one installed package: `require_one_app()` refuses otherwise, because a vendor-wide
+# prefix makes the other app's screens read as this one's and a test can then "pass" against the wrong
+# app. `a11y` used to warn about that and carry on.
+_prefix = ANDROID.get("packagePrefix") or ""
+APP_PKGS = [p for p in _prefix if p] if isinstance(_prefix, list) else []
+APP_PKG_PREFIX = "" if APP_PKGS else _prefix
+if APP_PKGS and DEFAULT_PKG and DEFAULT_PKG not in APP_PKGS:
+    APP_PKGS.append(DEFAULT_PKG)
+_PREFIX_OK = False
 
 
 def is_app(pkg):
     """Does a node's package belong to the app under test?"""
+    if APP_PKGS:
+        return pkg in APP_PKGS
     return pkg.startswith(APP_PKG_PREFIX) if APP_PKG_PREFIX else pkg == DEFAULT_PKG
+
+
+def require_one_app():
+    """A bare `packagePrefix` must mean ONE installed app, or nothing read from the tree can be
+    attributed. Asked once per run, before the first tree is read."""
+    global _PREFIX_OK
+    if _PREFIX_OK or not APP_PKG_PREFIX:
+        return
+    _PREFIX_OK = True                                  # ask the device once, however many dumps follow
+    installed = [line.split(":", 1)[-1].strip()
+                 for line in shell("pm", "list", "packages", APP_PKG_PREFIX, check=False).splitlines()]
+    matching = sorted({p for p in installed if p.startswith(APP_PKG_PREFIX)})
+    if len(matching) > 1:
+        raise SystemExit(
+            f"refusing: packagePrefix {APP_PKG_PREFIX!r} matches {len(matching)} installed packages "
+            f"({', '.join(matching)}). Their screens would read as this app's, so a flow driven in one "
+            "would count as the other's. Name them instead: \"packagePrefix\": [\"" + '", "'.join(matching[:2]) + "\"]"
+        )
 # alias → adb serial, so a plan can say "phone"/"tablet" instead of emulator-5554. Keys starting with
 # `_` are comments. Once this lists anything, no other device is touched (see require_device).
 DEVICES = {k: v for k, v in CONFIG.get("devices", {}).items() if not k.startswith("_")} \
@@ -202,9 +232,11 @@ def density():
     out = shell("wm", "density")
     m = re.search(r"Override density: (\d+)", out) or re.search(r"Physical density: (\d+)", out)
     if not m:
-        # R8: a guessed density makes every dp figure in `a11y` wrong. Say so, loudly.
-        print(f"⚠️ could not read the density from `wm density` ({out.strip()!r}); assuming 420", file=sys.stderr)
-        return 420
+        # A guessed density makes every dp figure wrong, and "assuming 420" was printed to stderr and
+        # then used anyway — a measurement nobody took, in a number the report quotes (R8). Unproven is
+        # a result; an estimate dressed as a measurement is not.
+        raise SystemExit(f"UNPROVEN: could not read the density from `wm density` ({out.strip()!r}). "
+                         "Every dp figure depends on it, so nothing is reported rather than assumed.")
     return int(m.group(1))
 
 
@@ -230,8 +262,11 @@ def screen_size():
     out = shell("wm", "size")
     m = re.search(r"Override size: (\d+)x(\d+)", out) or re.search(r"Physical size: (\d+)x(\d+)", out)
     if not m:
-        print(f"⚠️ could not read the screen size ({out.strip()!r}); assuming 1080×2400", file=sys.stderr)
-        return (1080, 2400)
+        # Same rule: every tap coordinate, every "off screen" and every system-bar check is derived
+        # from this. A guessed 1080×2400 taps somewhere nobody chose.
+        raise SystemExit(f"UNPROVEN: could not read the screen size from `dumpsys window displays`, the "
+                         f"accessibility tree or `wm size` ({out.strip()!r}). Coordinates depend on it, so "
+                         "nothing is driven rather than assumed.")
     return int(m.group(1)), int(m.group(2))
 
 
@@ -314,6 +349,7 @@ def dump(retries=4, windows=False):
     only used when the plain dump has no match, so a dialog still hides what is behind it (R5).
     """
     last = ""
+    require_one_app()
     for i in range(retries):
         # /data/local/tmp, not /sdcard: a managed phone's "no USB file transfer" policy let uiautomator
         # print "dumped to" while the shell couldn't read /sdcard back (measured). The shell owns this one.
@@ -1046,12 +1082,6 @@ def a11y(min_dp=48):
         # it to check, and "0 warnings" would be a lie.
         in_front = sorted({n.pkg for n in nodes if n.pkg})
         raise SystemExit(f"nothing on screen belongs to {APP_PKG_PREFIX or DEFAULT_PKG}; in front: {', '.join(in_front) or 'nothing'}")
-    if APP_PKG_PREFIX:
-        installed = [p.split(":", 1)[-1].strip() for p in shell("pm", "list", "packages", APP_PKG_PREFIX, check=False).splitlines()]
-        also = [p for p in installed if p.startswith(APP_PKG_PREFIX) and p != DEFAULT_PKG]
-        if also:
-            print(f"⚠️ packagePrefix {APP_PKG_PREFIX!r} also matches installed {', '.join(also)} — their screens count as the app's",
-                  file=sys.stderr)
     clickables = [n for n in app_nodes if n.clickable and n.enabled and n.w > 0 and n.h > 0]
     for n in clickables:
         clipping = None
