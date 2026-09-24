@@ -290,6 +290,13 @@ adapter re-reads until the two agree or a recorded limit passes (say which in th
 then is it a finding. Note the lagging endpoint in the adapter's quirk list too — knowing which ones
 settle late is worth as much as the defect.
 
+**Permissions are a screen too.** Every dangerous permission in the manifest is a flow: the screen
+that asks, what the app does when it is denied, what it does when "don't ask again" leaves only the
+system settings, and what happens when it is taken away between runs. Revoking one with
+`pm revoke <pkg> <perm>` also **kills the app's process**, so it is a process death and a relaunch
+(R9) — drive it that way, and use `tap --any-app` for the system dialog, which belongs to the OS, not
+the app.
+
 **When it is unclear what the product should do, REF decides** — open it, look, copy the behaviour.
 What REF does not settle, or where REF looks wrong, is a product decision: R2 queue, not a guess.
 Record which REF you copied and its version.
@@ -730,7 +737,11 @@ one is earlier QA work for it (step 3).
 
 **Look first, then ask once.** Good questions need facts, so setup starts by **looking without
 touching**: which AVDs exist and which are already running (`ui.py avds`), whether the server
-answers, what the manifest and the build files say, and **what QA work the repo already has** — test
+answers, what the manifest and the build files say, **whether the release build is even shippable**
+— three commands: its version number against the highest one already published from any branch, the
+signing key present (`apksigner verify --print-certs` on the last published artefact against the
+local key), and the release variant building and launching once — and **what QA work the repo already
+has** — test
 plans, an earlier campaign's reports, QA scripts, a client for the server, test credentials kept in
 some file (steps 3 and 6). "Before anything else" in step 1 means before *changing* anything, not
 before looking.
@@ -903,6 +914,7 @@ file:line, and its status. Severity, the same everywhere in the campaign:
 |---|---|
 | **P0** | data loss, **a security hole** — a password, a session token or private data readable by someone or something that shouldn't have it (another app, a backup, a log) — or a state the user cannot recover from |
 | **P1** | the user is lied to (told "saved" when it wasn't), or blocked with no workaround |
+| **P1** | it stops the release: a store or fleet requirement the build does not meet (a missing privacy policy, a dead "Help" link the review checks, a version below what is already published). It blocks everyone, and there is no workaround |
 | **P2** | a workaround exists, or it is cosmetic. Harness `a11y` warnings (small target, unnamed icon) are P2 unless they block a flow. Hardening that exposes nothing by itself (a too-wide file-sharing path, a session not revoked on the server) is P2 |
 
 **A secret in the system log** is **P0** when anyone but the developer collects logs from the devices

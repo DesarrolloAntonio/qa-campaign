@@ -28,6 +28,14 @@ router, not the UI layer. Each is a row here and gets driven (`<harness> open <u
 | # | Entry point | Declared in | Lands on | Oracles |
 |---|---|---|---|---|
 
+## System permissions
+
+Every dangerous permission the manifest declares — the ones the OS asks about. One row each, driven
+like any other control (SKILL.md R4).
+
+| Permission | Screen that asks | Denied → | "Don't ask again" → | Revoked, then relaunched → |
+|---|---|---|---|---|
+
 ## UI state fields
 
 Every field of the state object, and where it is painted. A field with nowhere to be painted is an
