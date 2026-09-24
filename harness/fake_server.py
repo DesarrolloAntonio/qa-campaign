@@ -26,10 +26,14 @@ Mac that hung, the port sat in CLOSED, and it looked exactly like a blocked sand
 """
 import argparse
 import json
+import os
 import socketserver
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "android"))
+from ui import hide_secrets_in_text          # noqa: E402  — one hiding rule for the whole harness (R11)
 
 
 class NoLookupServer(ThreadingHTTPServer):
@@ -52,6 +56,15 @@ def main():
     p.add_argument("--routes", help='JSON file: {"METHOD /path": {"status": …, "body": …, "type": …, "delay": …, "headers": {…}}}')
     a = p.parse_args()
     routes = json.load(open(a.routes)) if a.routes else {}
+    for key, route in routes.items():
+        # A route whose body is written as JSON (an object, a number) used to crash the handler thread
+        # and the app saw a connection reset, which reads as a network failure (audit).
+        if "body" in route and not isinstance(route["body"], str):
+            route["body"] = json.dumps(route["body"])
+        try:
+            route["status"] = int(route.get("status", a.status))
+        except (TypeError, ValueError):
+            raise SystemExit(f'route {key!r}: "status" must be a number, not {route.get("status")!r}')
 
     class Handler(BaseHTTPRequestHandler):
         def answer(self):
@@ -60,8 +73,11 @@ def main():
             route = routes.get(f"{self.command} {self.path.split('?')[0]}", {})
             status, body = route.get("status", a.status), route.get("body", a.body)
             kind, delay = route.get("type", a.type), route.get("delay", a.delay)
+            # The body goes into the run report, and a sign-in or a token refresh posts the credential
+            # in it (audit). Same hiding as everywhere else (R11).
+            shown_body = hide_secrets_in_text(sent[:300].decode(errors="replace")) if sent else ""
             print(f"{time.strftime('%H:%M:%S')} {self.command} {self.path} → {status}"
-                  + (f"  body: {sent[:300].decode(errors='replace')}" if sent else ""), flush=True)
+                  + (f"  body: {shown_body}" if sent else ""), flush=True)
             if delay:
                 time.sleep(delay)
             raw = body.encode()

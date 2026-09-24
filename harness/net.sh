@@ -90,7 +90,14 @@ fi
 # that put it after the command got a refusal it didn't check, and carried on "offline" while online.
 args=()
 while [ $# -gt 0 ]; do
-  if [ "$1" = "--device" ]; then export QA_DEVICE="${2:-}"; shift 2; else args+=("$1"); shift; fi
+  if [ "$1" = "--device" ]; then
+    [ -n "${2:-}" ] || { echo "--device needs an alias from \`devices\` in qa.config.json" >&2; exit 1; }
+    export QA_DEVICE="$2"; shift 2
+  elif [ "$1" = "--allow-device-change" ]; then
+    # It was not parsed at all: on `slow` it was taken as the throttle profile, and the run carried on
+    # believing the network was throttled (audit).
+    export QA_ALLOW_DEVICE_CHANGE=1; shift
+  else args+=("$1"); shift; fi
 done
 set -- ${args[@]+"${args[@]}"}
 if [ -n "${QA_DEVICE:-}" ]; then
@@ -201,12 +208,37 @@ print(u.hostname, u.port or (443 if u.scheme == "https" else 80))
   fi
 }
 
+# The emulator console prints "OK" or "KO: …" and exits 0 either way; on a physical device `adb emu`
+# fails. Both read as success before.
+console_ok() {
+  out=$("$ADB" emu $1 2>&1) || { echo "⚠️ \`adb emu $1\` failed: ${out:-no output} — a physical device has no emulator console" >&2; return 1; }
+  case "$out" in
+    *KO*|*"unknown command"*) echo "⚠️ the emulator refused \`$1\`: $out" >&2; return 1 ;;
+  esac
+  return 0
+}
+
 case "${1:-status}" in
   off)
     "$ADB" shell cmd connectivity airplane-mode enable
     # `off` used to echo the setting and exit 0 whatever the network was doing. A script gating on
     # it was gating on nothing.
-    for _ in $(seq 1 10); do validated || { echo "offline (airplane_mode_on=$("$ADB" shell settings get global airplane_mode_on | tr -d '\r'))"; exit 0; }; sleep 1; done
+    for _ in $(seq 1 10); do
+      if ! validated; then
+        # "no validated network" is also what adb losing the device looks like — which is exactly what
+        # airplane mode does to a phone connected over Wi-Fi (audit). Read the setting back to tell
+        # the two apart instead of printing "offline" either way.
+        # `|| mode=""`: with `set -e -o pipefail` a failed read would end the script right here,
+        # silently — which is the very case this is here to report (measured with a stub adb).
+        mode=$("$ADB" shell settings get global airplane_mode_on 2>/dev/null | tr -d '\r') || mode=""
+        case "$mode" in
+          1) echo "offline (airplane_mode_on=1)"; exit 0 ;;
+          "") echo "⚠️ adb lost the device after enabling airplane mode — connected over Wi-Fi? Nothing can be verified from here." >&2; exit 1 ;;
+          *) echo "⚠️ no validated network, but airplane_mode_on=$mode — something else took the network down" >&2; exit 1 ;;
+        esac
+      fi
+      sleep 1
+    done
     echo "⚠️ airplane mode is on but a validated network is still there after 10 s" >&2; exit 1
     ;;
   on)
@@ -224,12 +256,16 @@ case "${1:-status}" in
     ;;
   slow)
     p="${2:-edge}"
-    "$ADB" emu network speed "$p" >/dev/null && "$ADB" emu network delay "$p" >/dev/null
+    # The console answers "KO: …" on a bad profile and `adb emu` fails outright on a phone; both used
+    # to print "throttled" and exit 0, and the campaign believed the network was slow (audit).
+    console_ok "network speed $p" && console_ok "network delay $p" || exit 1
     echo "throttled: $p"
+    "$ADB" emu network status 2>/dev/null | tr -d '\r' | grep -iE "speed|delay" || true
     ;;
   full)
-    "$ADB" emu network speed full >/dev/null && "$ADB" emu network delay none >/dev/null
+    console_ok "network speed full" && console_ok "network delay none" || exit 1
     echo "full speed"
+    "$ADB" emu network status 2>/dev/null | tr -d '\r' | grep -iE "speed|delay" || true
     ;;
   status)
     echo "airplane_mode_on=$("$ADB" shell settings get global airplane_mode_on | tr -d '\r')"

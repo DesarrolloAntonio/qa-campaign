@@ -14,8 +14,11 @@ run at all (a build failure, a timeout, only skipped tests, or no report newer t
 `--break` could not be put back (the message says where the original is).
 
 `--break FILE OLD NEW` makes the break for this run and undoes it afterwards: OLD must appear exactly
-once in FILE, and the file is written back byte for byte and checked — after a timeout or Ctrl-C
-too. Repeat it for a break that spans several places. Breaking and restoring by hand is where it goes
+once in FILE, and the file is written back byte for byte and checked — after this script's own
+`--timeout`, after Ctrl-C, and after a SIGTERM or SIGHUP. A copy of every original is written **before
+the first byte changes** and its path is printed, so even a kill no handler survives (SIGKILL, or the
+tool that launched this one timing out) leaves the original somewhere. Give the caller a timeout above
+`--timeout`, or run this in the background: whoever kills this process wins. Repeat it for a break that spans several places. Breaking and restoring by hand is where it goes
 wrong: a shell loop that didn't split its file list left four files broken after a correct red, and
 only a failed `cp` gave it away (measured).
 
@@ -30,17 +33,36 @@ theirs). Only report files the command created or changed count.
 import argparse
 import glob
 import hashlib
+import re
 import os
+import signal
 import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
 
+def keep_path(path):
+    return os.path.join(tempfile.gettempdir(),
+                        "redcheck-" + hashlib.sha256(os.path.abspath(path).encode()).hexdigest()[:12]
+                        + "-" + os.path.basename(path))
+
+
 def apply_breaks(breaks):
     """Apply every --break; return {path: original bytes}. Refuses — putting back what it already
-    changed — unless each OLD is found exactly once."""
+    changed — unless each OLD is found exactly once.
+
+    The copy of each original is written BEFORE anything changes: no handler runs on SIGKILL, and the
+    tool that launched this one can time out and kill it — SIGTERM and SIGHUP left the source broken
+    with no copy anywhere (measured).
+    """
     originals = {}
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda *_: sys.exit(2))
+    for path, _, _ in breaks or []:
+        if os.path.exists(keep_path(path)):
+            print(f"note: a copy of {path} from an earlier run is still at {keep_path(path)} — a break may "
+                  "have been left in place; compare them before trusting this run.", file=sys.stderr)
     try:
         for path, old, new in breaks or []:
             if old == new:
@@ -51,7 +73,11 @@ def apply_breaks(breaks):
             n = data.count(old.encode())
             if n != 1:
                 refuse(f"--break {path}: OLD appears {n} times, not once — make it unique")
-            originals.setdefault(path, data)
+            if path not in originals:
+                originals[path] = data
+                with open(keep_path(path), "wb") as fh:
+                    fh.write(data)
+                print(f"break: {path} — original kept at {keep_path(path)}", file=sys.stderr)
             with open(path, "wb") as fh:
                 fh.write(data.replace(old.encode(), new.encode(), 1))
     except BaseException:
@@ -71,9 +97,7 @@ def restore(originals):
     original is kept in the temp folder until that check passes."""
     failed = []
     for path, data in originals.items():
-        keep = os.path.join(tempfile.gettempdir(), "redcheck-" + hashlib.sha256(path.encode()).hexdigest()[:12] + "-" + os.path.basename(path))
-        with open(keep, "wb") as fh:
-            fh.write(data)
+        keep = keep_path(path)
         try:
             with open(path, "wb") as fh:
                 fh.write(data)
@@ -109,9 +133,33 @@ def snapshot(roots):
     return seen
 
 
+ASSERTION_TYPES = ("assertionerror", "assertionfailederror", "comparisonfailure", "assertionfailure",
+                   "multiplefailureserror", "opentest4j")
+
+
+def is_assertion(kind):
+    """Did the test's own check fail, or did something blow up before it? (R6)"""
+    last = (kind or "").rsplit(".", 1)[-1].lower()
+    return any(t in last for t in ASSERTION_TYPES)
+
+
+def matches_filter(classname, name, name_filter):
+    """`--test Foo` means the class Foo, its last segment, or Foo.method — not any string containing it.
+
+    A plain substring on "classname.name" counted a sibling class and a same-named method in another
+    module as the target test (audit).
+    """
+    if not name_filter:
+        return True
+    cls = (classname or "").replace("$", ".")
+    f = name_filter.replace("$", ".")
+    return (f == cls or cls.endswith("." + f) or f == f"{cls}.{name}" or f == f"{cls.rsplit('.', 1)[-1]}.{name}"
+            or f == name)
+
+
 def reports_written_since(roots, before, name_filter):
     tests = failures = skipped = 0
-    messages = []
+    messages, crashes, counted = [], [], {}
     for root in roots:
         for path in glob.glob(os.path.join(root, "**", "*.xml"), recursive=True):
             st = os.stat(path)
@@ -124,20 +172,26 @@ def reports_written_since(roots, before, name_filter):
             except ET.ParseError:
                 continue
             for case in tree.iter("testcase"):
-                full = f"{case.get('classname', '')}.{case.get('name', '')}"
-                if name_filter and name_filter not in full:
+                cls, name = case.get("classname", ""), case.get("name", "")
+                if not matches_filter(cls, name, name_filter):
                     continue
                 tests += 1
+                counted.setdefault(cls, path)
                 bad = case.find("failure")
                 if bad is None:
                     bad = case.find("error")
                 if bad is not None:
-                    failures += 1
                     first = (bad.get("message") or (bad.text or "")).strip().splitlines()
-                    messages.append(f"{case.get('name')}: {first[0][:160] if first else '(no message)'}")
+                    line = f"{name}: {first[0][:160] if first else '(no message)'}"
+                    if is_assertion(bad.get("type")):
+                        failures += 1
+                        messages.append(line)
+                    else:
+                        # R6: a crash before the check is not the test saying "expected this, got that".
+                        crashes.append(f"{line}  [{bad.get('type') or 'no type'}]")
                 elif case.find("skipped") is not None:
                     skipped += 1
-    return tests, failures, skipped, messages
+    return tests, failures, skipped, messages, crashes, counted
 
 
 def main():
@@ -178,16 +232,41 @@ def judge(a, cmd):
     if not a.reports:
         roots = default_roots()
 
-    tests, failures, skipped, messages = reports_written_since(roots, before, a.test)
+    tests, failures, skipped, messages, crashes, counted = reports_written_since(roots, before, a.test)
+    for cls, path in sorted(counted.items()):
+        print(f"   counted {cls} from {path}")
+    if not a.test and len(counted) > 1:
+        # Without --test, any report the command touched counts: an unrelated module's tests turned an
+        # up-to-date target into GREEN (audit). Name what was counted instead of hiding it.
+        print(f"   ⚠️ {len(counted)} test classes counted and no --test: this colour is the whole run's, "
+              "not one test's", file=sys.stderr)
+    cached = [l for l in output.splitlines() if "FROM-CACHE" in l and "> Task" in l]
+    if cached:
+        print(f"NOT RUN: the task came FROM-CACHE, so the report on disk is a restored one, not this run's "
+              f"({cached[0].strip()[:120]}). Re-run with --rerun --no-build-cache.")
+        sys.exit(2)
     if tests == 0:
+        # Only when the command actually failed: `error:` appears in plenty of successful output, and an
+        # up-to-date run was reported as a failed build because of it (audit).
         compile_lines = [l for l in output.splitlines() if l.startswith("e: ") or "Compilation error" in l
-                         or "compilation failed" in l.lower() or "error:" in l]
+                         or "compilation failed" in l.lower() or re.search(r"\.(java|kt):\d+: error:", l)] if code != 0 else []
         if compile_lines:
             print(f"NOT RUN: the build failed before the test — {compile_lines[0][:200]}")
         else:
+            tasks = [l.strip()[:120] for l in output.splitlines()
+                     if "> Task" in l and ("UP-TO-DATE" in l or "FROM-CACHE" in l or "NO-SOURCE" in l)]
             print(f"NOT RUN: no report from this run{' for ' + repr(a.test) if a.test else ''} (exit {code}). "
-                  "Up to date or cached? Rerun with --rerun --no-build-cache and name the test task.")
+                  "Up to date or cached? Rerun with --rerun --no-build-cache and name the test task."
+                  + ("\n   " + "\n   ".join(tasks[:3]) if tasks else ""))
         sys.exit(2)
+    if crashes and not failures:
+        print(f"NOT RED: {len(crashes)} of {tests} ended before their check — a crash, not the test's own "
+              "verdict (R6). Fix the crash, then look again:")
+        for m in crashes[:5]:
+            print(f"   {m}")
+        sys.exit(2)
+    if crashes:
+        print(f"   note: {len(crashes)} more ended in a crash rather than a failed check: {crashes[0][:120]}")
     if failures:
         result = "red"
         print(f"RED: {failures} of {tests} failed, from reports this run wrote")

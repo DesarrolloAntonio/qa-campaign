@@ -45,8 +45,10 @@ once `devices` lists anything, refuses any device that is not on the list.
 import argparse
 import datetime
 import hashlib
+import html
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -63,6 +65,10 @@ ADB = None
 def _find_adb():
     """$ADB, then PATH, then the SDK env vars, then the macOS default — and refuse if none exists.
     The first version hard-coded the author's macOS path and died with a traceback elsewhere."""
+    if os.environ.get("ADB") and not os.path.isfile(os.environ["ADB"]):
+        # It used to fall through to PATH, so a typo in $ADB meant a different adb than the one the
+        # project's scripts use — and nothing said so (audit).
+        raise SystemExit(f"$ADB is {os.environ['ADB']!r}, which is not a file. Fix it or unset it.")
     candidates = [os.environ.get("ADB"), shutil.which("adb")]
     for var in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
         if os.environ.get(var):
@@ -140,7 +146,12 @@ def adb(*args, check=True, binary=False, timeout=60, with_stderr=False):
     if ADB is None:
         ADB = _find_adb()
     cmd = [ADB, *args]
-    res = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    try:
+        res = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # A traceback reads like a bug in the harness; this is the device not answering (R8).
+        raise SystemExit(f"adb {' '.join(args)} did not answer in {timeout}s — is the device still there? "
+                         "(`adb devices`; an emulator that is booting or swapping can take longer)")
     if check and res.returncode != 0:
         raise SystemExit(f"adb {' '.join(args)} → {res.returncode}: {res.stderr.decode(errors='replace').strip()}")
     if binary:
@@ -242,6 +253,10 @@ class Node:
         self.selected = a.get("selected") == "true"
         self.focused = a.get("focused") == "true"
         m = BOUNDS_RE.match(a.get("bounds", "[0,0][0,0]"))
+        if not m:
+            # Refuse rather than assume [0,0][0,0]: a 0×0 node reads as an off-screen element or a
+            # too-small touch target, which is the silent-wrong-answer class this file guards against.
+            raise SystemExit(f"unreadable bounds {a.get('bounds')!r} in the dump — read it again")
         self.x1, self.y1, self.x2, self.y2 = (int(v) for v in m.groups())
         self.depth = depth
         self.children = []
@@ -306,6 +321,9 @@ def dump(retries=4, windows=False):
         out = shell(*cmd, check=False, with_stderr=True)
         if "dumped to" in out:
             xml = shell("cat", f"{DEVICE_TMP}/qa_ui.xml")
+            # /data/local/tmp is world-readable: the screen's text (and whatever it showed) stayed on
+            # the device after every dump (audit).
+            shell("rm", "-f", f"{DEVICE_TMP}/qa_ui.xml", check=False)
             try:
                 root = ET.fromstring(xml)
             except ET.ParseError as e:
@@ -328,7 +346,9 @@ def dump(retries=4, windows=False):
 
             walk(root, 0, None)
             if windows:
-                nodes = [n for n in nodes if not n.pkg.startswith(SYSTEM_UI_PKGS)]
+                # Only the app's own windows: the keyboard carries "Delete" and "Search" descriptions,
+                # and matching them would make `find` say a control is there while `assert` says it is not.
+                nodes = [n for n in nodes if is_app(n.pkg)]
             return nodes
         last = out.strip()
         time.sleep(0.8 * (i + 1))
@@ -359,7 +379,9 @@ def matches(n, conds):
         if field is None:
             raise SystemExit(f"unknown selector key: {key}")
         if key == "id" and op == "=":
-            if field.split("/")[-1] != val:
+            # The part after the slash, or the whole resource-id: `id=com.x:id/title` matched nothing
+            # before, although that is what the dump prints (audit).
+            if field != val and field.split("/")[-1] != val:
                 return False
         elif op == "=":
             if field != val:
@@ -565,6 +587,8 @@ def tap(sel, index=None, long=False, expect=None, within=None):
 
 def find_elsewhere(sel, within=None):
     """The same selector in the app's other windows (a dropdown, a popup). Says so when it hits."""
+    if not DEFAULT_PKG and not APP_PKG_PREFIX:
+        return []          # without a package we cannot tell the app's windows from anyone else's
     found = find_in(sel, within, dump(windows=True))
     if found:
         print(f"note: {sel!r} is in another window of the app (a popup or dropdown), not in the focused one",
@@ -627,7 +651,7 @@ def watch(seconds, sel=None):
     lives ~2 s and one dump takes ~1.5 s: a single read missed "Session expired" as often as not, and was
     reported as "no message at all" twice (measured). With a selector, it stops as soon as that appears.
     """
-    seen, t0 = {}, time.time()
+    seen, t0, hit = {}, time.time(), False
     while time.time() - t0 < seconds:
         nodes = dump()
         now = time.time() - t0
@@ -638,10 +662,13 @@ def watch(seconds, sel=None):
                 seen[lab] = (first, now)
         if sel and find(sel, nodes):
             print(f"appeared: {sel} ({now:.1f}s)")
+            hit = True
             break
     for lab, (first, last) in sorted(seen.items(), key=lambda kv: kv[1][0]):
         print(f"{first:6.1f}s–{last:5.1f}s  {lab[:100]}")
-    if sel and not any(matches_label(sel, lab) for lab in seen):
+    if sel and not hit:
+        # It used to re-check the labels it collected, which cannot answer `id=` or `class=`
+        # selectors: `watch --until "id=…"` printed "appeared" and then exited 1 (measured).
         raise SystemExit(f"{sel!r} never appeared in {seconds}s")
 
 
@@ -679,15 +706,18 @@ def app_log(pkg, lines=300, grep=None):
     pids = shell("pidof", pkg, check=False).split()
     if not pids:
         raise SystemExit(f"{pkg} is not running — launch it first: `log` reads the running process only")
-    out = adb("logcat", f"--pid={pids[0]}", "-t", str(lines), check=False)
+    out = adb("logcat", f"--pid={pids[0]}", "-t", str(lines))
     shown_any = False
     for line in out.splitlines():
-        if grep and grep.lower() not in line.lower():
-            continue
         # Hide inside the message only: the "Tag : " header reads like "key: value", and a tag named
         # RtrSession hid the word after it (measured here, on a fake log, before shipping).
         head = LOG_HEADER_RE.match(line)
-        print(head.group(1) + hide_secrets_in_text(head.group(2), inline=True) if head else hide_secrets_in_text(line, inline=True))
+        shown = (head.group(1) + hide_secrets_in_text(head.group(2), inline=True)) if head else hide_secrets_in_text(line, inline=True)
+        # Filter AFTER hiding: grepping the raw line let `--grep <the secret>` confirm a value by
+        # whether anything came back (audit). Grepping by key name still works on the hidden text.
+        if grep and grep.lower() not in shown.lower():
+            continue
+        print(shown)
         shown_any = True
     if not shown_any:
         print(f"(no log lines{' matching ' + repr(grep) if grep else ''} from pid {pids[0]})", file=sys.stderr)
@@ -802,9 +832,20 @@ def show_keyboard():
 
 def type_text(text, expect=None):
     check_expected(expect)
-    # `input text` chokes on spaces and several symbols: escape them one by one.
+    # What `input text` cannot do, said out loud instead of printing "typed" (R8): a newline is a
+    # command separator on the device's shell, and non-ASCII never arrives — `input text "Grüße"`
+    # types "Gr" and drops the rest, which reads as an app that eats characters.
+    bad = [name for ch, name in ((chr(10), "a newline"), (chr(13), "a carriage return"), (chr(9), "a tab")) if ch in text]
+    if bad:
+        raise SystemExit(f"`type` cannot send {' or '.join(bad)} — send the lines one at a time, "
+                         "with `key ENTER` between them")
+    if any(ord(c) > 127 for c in text):
+        raise SystemExit(f"`type` cannot send non-ASCII text ({text!r}): `input text` drops it. "
+                         "Paste it through the clipboard (`am broadcast` in your project's script) or use ASCII in the fixture")
+    # `input text` chokes on spaces and several symbols: escape them one by one, then quote the whole
+    # argument — it is re-parsed by the device's shell after adb joins the arguments with spaces.
     esc = re.sub(r"([\\\"'`$&|;<>()*?!#~])", r"\\\1", text).replace(" ", "%s")
-    shell("input", "text", esc)
+    shell("input", "text", shlex.quote(esc))
     print(f"typed: {text!r}")
 
 
@@ -823,6 +864,7 @@ def screenshot(name, outdir):
     args = ["screencap", "-p", remote] if not m else ["screencap", "-d", m.group(1), "-p", remote]
     shell(*args)
     adb("pull", remote, path)
+    shell("rm", "-f", remote, check=False)     # world-readable: don't leave screens behind (audit)
     # R8: a screenshot of the wrong display is not a screenshot. Its size has to be the screen's.
     size = png_size(path)
     if size and size != screen_size():
@@ -1157,12 +1199,14 @@ def ancestors(n):
 # (authToken → auth, token), so "author" or "passage" are not hidden.
 SECRET_PARTS = {"password", "passwd", "pass", "pwd", "passphrase", "secret", "token", "credential",
                 "credentials", "cookie", "auth", "authorization", "bearer", "jwt", "session", "apikey",
+                "otp", "totp", "mfa", "refresh", "passcode", "cvv", "oauth",
                 "pin",
                 # EncryptedSharedPreferences keeps its Tink keysets next to the values
                 # (`__androidx_security_crypto_encrypted_prefs_key_keyset__`): Keystore-wrapped, but key
                 # material all the same, and `file` printed them whole (measured).
                 "keyset"}
-SECRET_JOINED = ("apikey", "privatekey", "accesskey", "secretkey")
+SECRET_JOINED = ("apikey", "privatekey", "accesskey", "secretkey", "encryptionkey", "masterkey",
+                 "signingkey", "clientkey")
 # Project words that are credentials HERE — an NFC card id that signs a driver in, an employee number.
 SECRET_PARTS |= {w.lower() for w in (CONFIG.get("android", {}).get("secretKeys") or [])}
 JWT_RE = re.compile(r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}")
@@ -1248,9 +1292,15 @@ def hide_secrets_in_text(text, inline=False):
         keyed(re.compile(r'"(?P<key>[^"]+)"\s*:\s*(?P<val>"(?:[^"\\]|\\.)*"|[^,}\]\s]+)'), "val"),
         # password=…   /   token: …
         keyed(re.compile(r'^(?P<ind>\s*)(?P<key>[\w.\-]+)\s*[=:]\s*(?P<val>.+)$', re.M), "val"),
-        # …inside a log line: nfcId=04 a1 b2 c3, token: abc — a hex id with spaces is one value
-        keyed(re.compile(r'(?P<key>\b[A-Za-z][\w.\-]*)\s*[=:]\s*(?P<val>(?:[0-9A-Fa-f]{2}(?:[ :][0-9A-Fa-f]{2})+)|[^\s,;}\]"\'<]+)'), "val"),
+        # …inside a log line: nfcId=04 a1 b2 c3, token: abc — a hex id with spaces is one value.
+        # `&` ends a value too: a form body is `grant_type=refresh&refresh_token=abc` on one line.
+        keyed(re.compile(r'(?P<key>\b[A-Za-z][\w.\-]*)\s*[=:]\s*(?P<val>(?:[0-9A-Fa-f]{2}(?:[ :][0-9A-Fa-f]{2})+)|[^\s,;&}\]"\'<]+)'), "val"),
     ]
+    # An HTTP auth header: the credential follows a scheme word, so the key/value rules hide the
+    # scheme and print the credential (measured on `Authorization: Token <40 hex>`, which no shape
+    # rule catches). Everything after the colon goes.
+    text = re.sub(r'(?i)\b((?:proxy-)?authorization|x-api-key|cookie|set-cookie)(\s*[:=]\s*)\S[^\r\n]*',
+                  lambda m: m.group(1) + m.group(2) + HIDDEN, text)
     # JSON stored INSIDE a string — {"user": "{\\"sessionId\\":\\"…\\"}"}, a common Multiplatform
     # Settings / SharedPreferences shape: the outer key "user" looks harmless and the session id inside
     # printed (measured). Same rules on the escaped form, and tokens hidden by their SHAPE too.
@@ -1350,11 +1400,21 @@ def pull_db(alias, pkg=DEFAULT_PKG):
 
 
 def query(path, sql):
-    """Runs `sql` on a local SQLite file and prints it, with secret-looking columns hidden (R11)."""
-    con = sqlite3.connect(path)
+    """Runs `sql` on a local SQLite file and prints it, with secret-looking columns hidden (R11).
+
+    Read-only, and it says so: an `update`/`delete` used to run against the **temp copy** pulled from
+    the device and print nothing, so it looked like a write that worked and changed nothing (audit).
+    """
+    if any(looks_secret(t) for t in re.findall(r"[A-Za-z_]\w*", sql)) and " as " in sql.lower():
+        raise SystemExit("a secret-looking column behind an alias or an expression can't be hidden — "
+                         "select it by its own name (R11)")
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         cur = con.execute(sql)
-        cols = [d[0] for d in cur.description or []]
+        if cur.description is None:
+            raise SystemExit(f"`db` only reads: {sql.split()[0].lower()!r} would change the copy pulled from "
+                             "the device, not the app's store. Drive the app to change its data (R10).")
+        cols = [d[0] for d in cur.description]
         rows = cur.fetchall()
     except sqlite3.Error as e:
         # A typo'd column used to end in a Python traceback; the database's own words are the answer.
@@ -1362,15 +1422,27 @@ def query(path, sql):
     finally:
         con.close()
     secret = [looks_secret(c) for c in cols]
+    # A settings table is `(key, value)`: no column name is secret, and the secret sits in the value
+    # of the row whose key says so — `password | hunter2` printed in full (measured).
+    key_col = next((i for i, c in enumerate(cols) if c.lower() in
+                    ("key", "name", "pref_key", "_key", "setting", "property", "field")), None)
+    val_cols = [i for i, c in enumerate(cols) if c.lower() in ("value", "val", "_value", "data", "content")]
+    if key_col is not None and val_cols:
+        print(f"(a key/value table: the value is hidden on any row whose {cols[key_col]} looks like a secret)",
+              file=sys.stderr)
     if any(secret):
         print(f"(values hidden in: {', '.join(c for c, s in zip(cols, secret) if s)} — an empty one shows as empty)",
               file=sys.stderr)
     if cols:
         print(" | ".join(cols))
     for r in rows:
+        row_secret = list(secret)
+        if key_col is not None and val_cols and looks_secret(str(r[key_col] or "")):
+            for i in val_cols:
+                row_secret[i] = True
         print(" | ".join(
             "" if v is None or v == "" else HIDDEN if hide else hide_secrets_in_text(str(v))
-            for v, hide in zip(r, secret)
+            for v, hide in zip(r, row_secret)
         ))
     return rows
 
@@ -1413,7 +1485,10 @@ def app_file(alias, pkg, out=None):
             f"{rel} is binary ({len(data)} bytes), so it is not printed. Copy it with --out and decode it with "
             "the project's own reader — which must hide secrets too (R11)."
         )
-    print(hide_secrets_in_text(text))
+    # SharedPreferences writes a stored JSON object with its quotes escaped as `&quot;`, so the
+    # session inside an innocent key (`user`, `profile`) matched no rule and printed whole
+    # (measured). The entities are expanded before hiding, and the file is printed that way.
+    print(hide_secrets_in_text(html.unescape(text)))
 
 
 def mentions_app(line, pkg):
@@ -1560,6 +1635,32 @@ def claim_device(serial):
         json.dump({"project": mine, "at": time.time()}, fh)
 
 
+def release_locks(force=False):
+    """Free this project's claims without needing a device.
+
+    Keyed by the lock's `project`, not by a serial: the emulator is usually gone by the time a
+    campaign stops, and `release` then refused with "no device reachable" (audit). `--force` frees
+    the locks of other projects too — only when that campaign is really over.
+    """
+    mine, freed = project_name(), []
+    for name in sorted(os.listdir(LOCK_DIR)) if os.path.isdir(LOCK_DIR) else []:
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(LOCK_DIR, name)
+        try:
+            with open(path) as fh:
+                lock = json.load(fh)
+        except (OSError, ValueError):
+            lock = {}
+        owner = lock.get("project", "?")
+        if owner != mine and not force:
+            print(f"{name[:-5]}: claimed by {owner}, left alone — `release --force` only if that campaign is over")
+            continue
+        os.remove(path)
+        freed.append(f"{name[:-5]} (was {owner})")
+    print("released: " + ", ".join(freed) if freed else "nothing to release: this project holds no claim")
+
+
 def release_device(serial, force=False):
     key = device_key(serial)
     lock = read_lock(key)
@@ -1668,6 +1769,12 @@ def main():
                            help="include other processes (the harness itself, the system…)")
     sub.add_parser("clear-crashes")
     for name in sub.choices:
+        for flag, dest in (("--device", "device"), ("--serial", "serial"), ("--pkg", "pkg"),
+                           ("--allow-device-change", "allow_device_change")):
+            if flag == "--allow-device-change":
+                sub.choices[name].add_argument(flag, dest=dest, action="store_true", default=argparse.SUPPRESS)
+            else:
+                sub.choices[name].add_argument(flag, dest=dest, default=argparse.SUPPRESS)
         # On every subcommand, and on the parser itself, so it is accepted before OR after the command:
         # `--any-app` was refused in both places on the commands that didn't define it (measured), and a
         # campaign fell back to raw `adb shell input tap`. SUPPRESS keeps a subcommand's default from
@@ -1675,6 +1782,17 @@ def main():
         sub.choices[name].add_argument("--any-app", action="store_true", default=argparse.SUPPRESS,
                                        help="allow input when another app is in front (a share sheet, a browser)")
     a = p.parse_args()
+    if CONFIG_PATH is None and a.cmd not in ("avds", "serial", "release"):
+        # Before any adb call, so nothing is claimed or driven: without a config there is no package,
+        # no device allow-list and no front-app guard, and the harness would drive whatever adb picks
+        # (audit). `avds`, `serial` and `release` are the three that make sense without one.
+        raise SystemExit(
+            f"no qa.config.json found (looked from {os.getcwd()} upwards and in $QA_CONFIG), so `{a.cmd}` would "
+            "drive whatever device adb picks, with no package and no allow-list. Copy qa.config.example.json "
+            "into the project and fill it in (SKILL.md §2.1 step 6)."
+        )
+    if CONFIG_PATH and not DEVICES and a.cmd not in ("avds", "serial", "release"):
+        print(f"note: no `devices` allow-list in {CONFIG_PATH}: driving whatever adb picks", file=sys.stderr)
     if a.device:
         if a.device not in DEVICES:
             raise SystemExit(f"unknown device alias {a.device!r}; `devices` in qa.config.json has: {', '.join(sorted(DEVICES)) or 'nothing'}")
@@ -1702,10 +1820,12 @@ def main():
         return
     global CLAIM
     CLAIM = a.cmd != "release"
-    require_device()
     if a.cmd == "release":
-        release_device(subprocess.run([ADB, "get-serialno"], capture_output=True, text=True).stdout.strip(), a.force)
+        # No device needed: a campaign that has already shut its emulator down still has to free the
+        # claim, and `release` used to refuse with "no device reachable" (audit).
+        release_locks(a.force)
         return
+    require_device()
     changes = a.cmd in DEVICE_CHANGING or (a.cmd == "claim" and a.changes_device)
     if changes and MANAGED and not (a.allow_device_change or os.environ.get("QA_ALLOW_DEVICE_CHANGE")):
         serial = os.environ.get("ANDROID_SERIAL") or subprocess.run([ADB, "get-serialno"], capture_output=True, text=True).stdout.strip()
@@ -1766,7 +1886,9 @@ def main():
     elif a.cmd == "clear":
         clear_field(a.sel, a.n, a.expect)
     elif a.cmd == "key":
-        shell("input", "keyevent", a.key if a.key.startswith("KEYCODE_") else "KEYCODE_" + a.key)
+        # `key enter` sent KEYCODE_enter, which the device ignores in silence (audit).
+        name = a.key.upper()
+        shell("input", "keyevent", name if name.startswith("KEYCODE_") else "KEYCODE_" + name)
     elif a.cmd == "show-keyboard":
         show_keyboard()
     elif a.cmd == "hide-keyboard":
@@ -1786,7 +1908,15 @@ def main():
     elif a.cmd == "installed":
         installed(a.pkg, a.apk)
     elif a.cmd == "launch":
-        shell("monkey", "-p", a.pkg, "-c", "android.intent.category.LAUNCHER", "1", check=False)
+        # `check=False` swallowed monkey's "No activities found to run" and launch said nothing at all
+        # on a package that isn't installed (measured by the audit). Read the result back, like `back`.
+        shell("monkey", "-p", a.pkg, "-c", "android.intent.category.LAUNCHER", "1")
+        time.sleep(1.5)
+        front = app_in_front(a.pkg)
+        if not is_app(front):
+            raise SystemExit(f"`launch` did not bring {a.pkg} to the front: {front or 'nothing'} is there. "
+                             "Installed? `installed` says.")
+        print(f"launched {a.pkg}")
     elif a.cmd == "stop":
         shell("am", "force-stop", a.pkg)
     elif a.cmd == "kill":
@@ -1815,7 +1945,11 @@ def main():
         again = f"; the system started it again as pid {after[0]} (a service or job) — still a restore" if after else ""
         print(f"killed {a.pkg} (pid {before[0]}, {how}) in the background, saved state kept{again} — launch again to test the restore")
     elif a.cmd == "open":
-        out = shell("am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", a.url, a.pkg, check=False, with_stderr=True)
+        # Quoted: adb joins the arguments with spaces and the device's shell re-parses them, so a
+        # deep link with `?a=1&b=2` was cut at the `&`, the rest ran as a command, and `open` still
+        # printed "opened" (measured).
+        out = shell("am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", shlex.quote(a.url), a.pkg,
+                    check=False, with_stderr=True)
         if "Error" in out or "does not exist" in out or "Unable to resolve" in out:
             raise SystemExit(f"could not open {a.url!r} in {a.pkg}: {out.strip()}")
         print(f"opened {a.url} in {a.pkg}")
@@ -1841,13 +1975,13 @@ def main():
     elif a.cmd == "file":
         app_file(a.alias, a.pkg, a.out)
     elif a.cmd == "clear-crashes":
-        adb("logcat", "-b", "crash", "-b", "events", "-c", check=False)
+        adb("logcat", "-b", "crash", "-b", "events", "-c")
         print("crash and event buffers cleared")
     elif a.cmd == "crashes":
         # THE APP's only. The crash buffer also collects the harness's own — two concurrent
         # `uiautomator dump` calls give "UiAutomationService … already registered!" — and that used
         # to be reported as if the app had crashed. `--all` shows the whole buffer.
-        raw = adb("logcat", "-b", "crash", "-d", check=False).strip()
+        raw = adb("logcat", "-b", "crash", "-d").strip()
         if a.all:
             crash = raw
         else:
@@ -1864,7 +1998,7 @@ def main():
             ).strip()
         # /data/anr needs root; ANRs show up in the events buffer instead (`am_anr`).
         anr = "\n".join(
-            l for l in adb("logcat", "-b", "events", "-d", check=False).splitlines()
+            l for l in adb("logcat", "-b", "events", "-d").splitlines()
             if "am_anr" in l and (a.all or mentions_app(l, a.pkg))
         )
         print(crash or "0 crashes")
