@@ -28,8 +28,8 @@ it. The **Commands** column is the interface SKILL.md and the templates rely on.
 `key=value` pairs separated by spaces, **all** must match: `text=` exact, `text~=` contains
 (case-insensitive), `desc=`/`desc~=` accessible description, `id=` test id / resource id (suffix
 match), `id~=`, `class=`/`class~=`, and the booleans `clickable= scrollable= enabled= checked=
-selected=`. First match wins — with a warning when it hits several different controls; `--index N`
-picks another. `dump` prints one node per line:
+selected=`. First match wins, but a selector that hits several **different** controls is **refused**,
+not guessed: `--index N` names one and `--any` takes the first on purpose. `dump` prints one node per line:
 `<flags> text="…" desc="…" id=…  [x1,y1][x2,y2]`; `db` prints `col | col` then one row per line;
 `files` prints `size  path`.
 
@@ -81,7 +81,9 @@ it. Inject a real account again when done: the fake session **replaced** it.
 
 ## Rules for the harness itself
 
-**It is under test (R8).** Four things follow, and each cost a session to learn:
+**It is under test (R8)** — literally: `tests/run` drives these scripts against a fake `adb`, with no
+device and no network, and every case there is something the harness must refuse. Four things follow,
+and each cost a session to learn:
 
 1. **Never report a silent all-clear.** No device, no configuration, an unknown alias, a mistyped
    `QA_CONFIG` — the tool must *refuse* and say what is missing, not return "0 warnings" or blame

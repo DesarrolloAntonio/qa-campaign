@@ -410,6 +410,12 @@ cannot reach the device, or has no configuration, must refuse — never print "0
 When you change the harness, prove the change in **both directions**: the false positives are gone,
 *and* a real finding is still caught (re-introduce one and check).
 
+The harness in this repository has its own tests — `tests/run`, a fake `adb` and no device — and each
+one is a sentence about what the tool must **refuse**: an ambiguous selector, a device that is not on
+the allow-list, an open port that answers no HTTP, a report an earlier run wrote. Run them after
+touching anything under `harness/`, and when a campaign catches the harness lying, the fix arrives with
+the test that would have caught it (R12).
+
 ### R9 — "The UI gets recreated" is an axis of its own
 
 Every platform has a moment where it throws the UI away and rebuilds it from whatever state you
@@ -984,7 +990,8 @@ pixels — it is text, it can be asserted on, and it is cheap.
 #   python3 ~/.claude/skills/qa-campaign/harness/android/ui.py --device phone dump
 ui.py --device phone dump               # the screen as text; device by alias (or --serial / ANDROID_SERIAL)
 ui.py tap "text=Add item"               # selectors: text= text~= desc= desc~= id= id~= class= class~=
-                                        #            clickable= scrollable= enabled= checked= selected= · --index N
+                                        #            clickable= scrollable= enabled= checked= selected=
+                                        # several DIFFERENT controls = a refusal, not the first one (--index N / --any)
 ui.py tap "text=Save" --expect "text=Edit item"   # only if that screen is showing; stops otherwise
 ui.py tap "desc=Delete" --in "text=QA_Item1"      # the Delete of THAT item — refuses if it can't be sure
 ui.py assert "text=Delete" --absent     # exit 1 if wrong — what a script gates on (`wait`, `watch`, `state` too)

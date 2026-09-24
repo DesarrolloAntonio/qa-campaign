@@ -79,6 +79,18 @@ Android-specific debris.
   (same pid before and after) while saying it had killed it, and two process-death checks proved
   nothing (measured). `kill` now reads the pid after, finishes a debuggable app with `kill -9`, and
   refuses when it is still alive.
+- **An open port is not a server, and an `adb reverse` port is always open.** Measured on API 37: with
+  nothing listening on the computer's end, the device's `nc` connected to the forwarded port and exited
+  0 — and `net.sh reach` called that "server reachable". A port nobody forwards refuses properly. So
+  `reach` speaks HTTP over the connection now, which is the only thing that tells a live server from a
+  tunnel to nowhere. Two traps inside it: the device ships **no HTTP client** (no `curl`, no `wget`, no
+  `openssl` — only `nc`), so an https server is checked from the computer and the output says so; and
+  `printf … | nc` loses the exchange, because stdin closes at once and the connection goes down before
+  the answer arrives. Keep stdin open: `(printf '…'; sleep 3) | nc -w 8 host port`.
+- **Airplane mode is Android's state, not the app's.** A fake server behind `adb reverse`, a VPN, or
+  anything on the device itself still answers with the radios off, so `net.sh off` asks from the app's
+  side too and names the server it could no longer reach. Offline against a fake server is a fine test
+  — the report has to say which server it means.
 - **The device can't resolve a name this computer resolves.** An emulator takes the computer's first
   DNS server when it boots, so with another VPN in front of it, the VPN's own names stop resolving on
   the device (measured with Tailscale). Boot it with `-dns-server <that VPN's resolver>` —

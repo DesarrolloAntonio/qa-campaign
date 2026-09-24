@@ -24,7 +24,8 @@ each of which earned its place on a real campaign:
 - **Seen red, always.** A regression test does not exist until you have watched it fail.
 - **The harness is under test too.** When your tool reports a defect, its first suspect is itself —
   a false positive costs more than a miss, because it trains you to ignore the tool. And it must
-  never print a silent all-clear.
+  never print a silent all-clear. The harness here has its own suite: `tests/run`, against a fake
+  device, with nothing plugged in.
 
 ## Before you run it
 
