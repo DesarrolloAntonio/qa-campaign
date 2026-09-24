@@ -15,8 +15,8 @@ runs the interview itself, and nothing is touched until you have answered it.
 **Contents:** [What it gives you](#what-it-actually-gives-you) · [Before you run it](#before-you-run-it) ·
 [Start a campaign](#start-a-campaign) · [What it asks first](#what-it-asks-before-it-touches-anything) ·
 [How a campaign goes](#how-a-campaign-goes) · [Credentials](#credentials-and-why-it-never-types-your-password) ·
-[The fake server](#the-fake-server) · [Other platforms](#any-project-not-just-mobile) ·
-[The harness](#the-harness) · [Status](#status)
+[The fake server](#the-fake-server) · [A real campaign](#a-campaign-as-it-came-out) ·
+[Other platforms](#any-project-not-just-mobile) · [The harness](#the-harness) · [Status](#status)
 
 It was used on one production release: a dozen gated processes, **79 defects found, 77 fixed** (the
 other two were product decisions). Every fix was verified in the running app; most carry a
@@ -176,6 +176,23 @@ From an emulator, reach it with `adb reverse tcp:18099 tcp:18099` and `http://12
 app — and check it with `net.sh reach`, which asks **as the app** and speaks HTTP over the connection,
 because an open port is not a server: a dangling `adb reverse` accepts the connection with nothing
 behind it (measured on API 37).
+
+## A campaign, as it came out
+
+[`examples/shiori/`](examples/shiori/) is the unedited output of one: plan, gates, findings, the
+screens that were looked at, the human queue, and the friction log. The product is a public app, so
+the fixes it produced are readable too.
+
+It is there because of what it is: a campaign run on code **a previous campaign had already approved**,
+with nothing new written since. What had changed was the skill — the LOG oracle and the
+online-plus-offline mix rule were new. On that identical code it found **a P0 and two P1s**: editing a
+bookmark deleted tags added elsewhere, the last tag could not be removed, and the whole library went
+to the system log in release builds. Two more findings it could not prove are written down as
+**unproven** instead of being counted either way.
+
+It also sent back two bugs in this repository's own tools
+([issue #13](https://github.com/DesarrolloAntonio/qa-campaign/issues/13)) — both fixed the same day,
+each with a test. That loop is the point.
 
 ## Any project, not just mobile
 
