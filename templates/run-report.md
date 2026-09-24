@@ -18,6 +18,9 @@ if it is too big to read here, a link to NN-<area>-inventory.md>`
 
 > Severity scale: SKILL.md §2.3. What must be fixed before the gate depends on the fix mode in
 > CAMPAIGN.md; in report-only mode nothing is.
+> A fix that touched code beyond this process's own module ends its Status with
+> `modules: <what git diff --stat showed>` — the release gate re-drives the earlier processes those
+> modules belong to (SKILL.md §2.2 step 3).
 
 ## Screens looked at (EYE)
 

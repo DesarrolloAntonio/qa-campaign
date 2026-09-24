@@ -1,5 +1,5 @@
 {
-  "_readBy": "Only `android.*` and `devices` are read by the scripts. Everything else documents the plan for the humans and the agent filling CAMPAIGN.md. Secrets never go in this file — they go in a separate, gitignored qa.credentials.json (see adapters/README.md).",
+  "_readBy": "Read by the scripts: `android.*`, `devices`, `managedDevices` and `campaign`. Everything else documents the plan for the humans and the agent filling CAMPAIGN.md. Secrets never go in this file",
 
   "campaign": "my-app release QA",
   "_campaign": "optional: the name the device claim uses to tell campaigns apart. Without it, the git root of this file's folder — so a second config for the same campaign (another app id for the release build) is still the same campaign.",
@@ -57,9 +57,9 @@
   "_managedDevices": "aliases or serials of devices that are not the campaign's to alter (a managed work phone, someone's own phone): rotate, size, demo, clear-crashes and net.sh on/off/slow/full refuse on them unless --allow-device-change / QA_ALLOW_DEVICE_CHANGE=1.",
 
   "server": {
-    "url": "http://192.168.1.10:8080",
-    "urlFromDevice": "http://10.0.2.2:8080",
-    "_note": "the test server agreed at setup (SKILL.md §2.1) — whether it is a disposable copy or a shared one, and whose data it holds. `net.sh reach` checks it from the DEVICE, with urlFromDevice when the device sees the server at a different address (an emulator reaches the computer as 10.0.2.2)."
+    "url": "http://127.0.0.1:8080",
+    "urlFromDevice": "http://127.0.0.1:8080",
+    "_note": "the test server agreed at setup (SKILL.md §2.1) — whether it is a disposable copy or a shared one, and whose data it holds. `net.sh reach` checks it from the DEVICE with urlFromDevice. This example is a server on this computer, reached after `adb reverse tcp:8080 tcp:8080`: 10.0.2.2 answers the device's SHELL but the app's own uid timed out on it (R10). A server on the LAN or a VPN: the address the DEVICE resolves, which may not be the one this computer uses."
   },
 
   "session": {

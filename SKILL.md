@@ -24,10 +24,10 @@ Each earned its place on a real release campaign — most because its absence le
 a few because they stopped the campaign from lying about what it had done. Read them before running
 anything.
 
-The rules are generic. The **examples are not**: they come from the one campaign this was extracted
-from — a mobile client for a self-hosted server, with notes, boards and shared folders. When a rule
-mentions a trash, a shared note or a server quirk, read it as *"the kind of thing"*, and substitute
-your own.
+The rules are generic. The **examples are not**: they come from the campaigns this was extracted from
+and tried on — a multiplatform client for a self-hosted server (notes, boards, bookmarks), a bookmarks
+client, a travel log, and a fleet terminal with a realtime cloud database. When a rule mentions a
+trash, a shared note or a server quirk, read it as *"the kind of thing"*, and substitute your own.
 
 ---
 
@@ -499,7 +499,9 @@ own way — so the setup gate builds it. It is two questions.
    and kept in shell history) and never `adb push` the file (a loose copy left on the device).
 2. **Write the store directly** (`run-as` on a debuggable build) when the session lives in a plain
    preferences file or database.
-3. **A debug-only launch argument** that accepts a token — app code, development builds only.
+3. **A debug-only launch argument** that accepts a token — app code, development builds only, and
+   **only for a token that is ordinary test input**: one minted on a disposable server you run, or a
+   declared test identifier. A real server's token never goes on a command line (above).
 4. **Log in once by hand and snapshot the device** — the human signs in, the emulator or
    simulator is snapshotted logged-in, and every run starts from that snapshot. This is the answer
    for iCloud, two-factor and anything else with no programmatic path.
@@ -594,7 +596,9 @@ sense here: one line in `SKILL-FRICTION.md`, in the campaign's docs folder, **wh
 reconstructed at the end. Each line carries a tag — **GUESS**, **FALSE-ASSUMPTION**, **TOOL** or
 **NONSENSE** — then where in the skill (`SKILL.md` R6, `ui.py tap`), what happened, and what you did
 instead. The file's first line names the skill version the campaign started with (its commit, when
-the skill is a git checkout). Don't edit the skill from inside a campaign; work around it in the
+the skill is a git checkout: `git -C ~/.claude/skills/qa-campaign rev-parse --short HEAD`, and
+`git -C … log --oneline <that>..HEAD` at the end lists what changed under you; "none — copied install"
+when it is not a checkout). Don't edit the skill from inside a campaign; work around it in the
 project and log the line. Most rules in this file after the first campaign came from lines like
 these.
 
@@ -719,8 +723,12 @@ tools take four, and a second round gets skipped:
    **Commits, and where the work goes** — may the agent commit at each gate, or only leave the
    changes for the human to review? **On a branch of its own (`qa/<date>`) or on the branch that is
    checked out?** Ask; don't assume: a project forbade new branches as a standing rule (measured).
-   Where do campaign docs live if `docs/` is not versioned in this repo? Notes kept
-   only on this machine have **no backup** — say so when that is the answer.
+   Where do campaign docs live if `docs/` is not versioned in this repo — **and is `docs/` served
+   anywhere?** Grep for that before asking (a GitHub Pages `/docs` source, a deploy or sync script, a
+   static-site config): one repo copied its whole `docs/` folder to a web host on every sync, which
+   would have put run reports — server addresses, account names, defect detail — on the open web
+   (audit). When something serves it, propose a folder nothing serves. Notes kept only on this
+   machine have **no backup** — say so when that is the answer.
 
    In the fix modes every fix ships with its regression test (R6, R7) — that is part of fixing, not
    an extra. *Report only* changes nothing in the repository's source: no fixes and **no test
@@ -784,13 +792,23 @@ tools take four, and a second round gets skipped:
    phone and tablet layouts. Any physical device attached that is not explicitly the test device is
    **off-limits** — list the test devices in `devices` and pass `--device` on every command. Once
    `devices` lists anything, the scripts **refuse any device that is not on the list**, so nothing
-   lands on someone's personal or work phone by accident. List an emulator by its AVD —
+   lands on someone's personal or work phone by accident. **That guard is the harness's, not adb's**:
+   an `adb install`, an `adb reverse`, a `settings put` or a Gradle task typed straight into the shell
+   goes wherever adb decides. Carry the device on each of them —
+   `ANDROID_SERIAL="$(ui.py serial qa)" adb install app.apk`, same prefix for `installDebug` and
+   `connectedAndroidTest`, which honour it too. Per command: a shell variable doesn't survive between
+   calls. List an emulator by its AVD —
    `"qa": "avd:Resizable_Experimental"` — not by its serial: `emulator-5554` is only *whichever
    emulator booted first*, so the same serial can name another campaign's emulator tomorrow
    (measured). Start emulators with `-port <even number>` so their serial can be found from the
    process list. A project-side script that talks to the device (a store reader, an injector) gets
    the serial from `ui.py serial <alias>` — `avd:…` is not a serial.
-6. Copy `qa.config.example.json` to `qa.config.json`. The scripts read `android.*` and `devices`;
+   **More than one app in the repo?** Then the devices question asks **which one** first: the module,
+   the flavor and the build type, and the `applicationId` read from that module's build file. A
+   monorepo with dozens of application modules has dozens of ids, and `android.package` holds exactly
+   one — picked wrong, every command drives another app that looks just like it (audit). Record the
+   answer next to the device in `CAMPAIGN.md`; `installed --apk` then ties the device to that build.
+6. Copy `qa.config.example.json` to `qa.config.json`. The scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
    the rest (`server`, `session`, `fixtures`, `app`) documents the plan. **Secrets never go in it**:
    the adapter reads a separate `qa.credentials.json` (its shape: `adapters/README.md`).
 
@@ -841,7 +859,11 @@ tools take four, and a second round gets skipped:
    the form saved the list's stale copy over a change made a minute earlier (measured).
 3. For each finding the **fix mode** covers: fix it, write the regression test, **see it red**
    (R6), add its negative pair where the test asserts an absence (R7). Everything else: write it up
-   (§2.3) and queue it. Stop only for what R2 lists.
+   (§2.3) and queue it. Stop only for what R2 lists. **Record which modules the fix touched** —
+   `git diff --stat` — in its row: a gate closes on the code as it was that day, and a later fix in
+   shared code can undo it without anything noticing (audit). At the release gate, re-drive the
+   inventory rows of earlier processes whose module a later fix touched, and list them in that
+   report.
 4. Run the whole suite (R13).
 5. Verify each fix **in the running system**, not only in the test — and first prove the running
    system **is the build with the fix**. A failed build stops here: never install whatever the last
@@ -923,6 +945,7 @@ ui.py installed --apk <file>            # version, install time, and whether the
 ui.py avds                              # every AVD, its version and size, which are running and which are in use — touches no device
 ui.py serial <alias>                    # the adb serial an alias means right now, for project-side scripts
 ui.py release                           # free the device for another campaign when this one stops
+ui.py --help · ui.py <command> --help   # every command and every flag, from the script itself
 ui.py wait "text~=Saved" --timeout 10   # gate on something appearing (or --gone); it doesn't scroll
 ui.py watch 6 --until "text~=expired"   # every label that shows for 6 s — snackbars last ~2 s, a dump ~1.5
 ui.py state "text=Public"               # ON/off of the switch beside that label
@@ -984,8 +1007,6 @@ project-specific is in the scripts: package, database aliases and device aliases
 - `uiautomator dump` reports **visible** bounds. Half-scrolled elements look small. (R8)
 - Two `uiautomator dump` calls at once crash each other with *"UiAutomationService already
   registered!"*, and that lands in the crash buffer looking like an app crash. Filter by package.
-- On Android, `connectedAndroidTest` **uninstalls the app afterwards**, taking the injected session
-  with it. Install the APKs and run `am instrument` directly instead.
 - A `@Preview` is not a dead control. It is on S2's discard list for a reason.
 - `id=` selectors read `resource-id`. In Compose that only exists if the app enables
   `testTagsAsResourceId`; without it they match nothing, silently. `text=`/`desc=` always work.
@@ -1030,7 +1051,9 @@ project-specific is in the scripts: package, database aliases and device aliases
   every red or green on the device the injected session is gone — inject it again before driving by
   hand — and whatever a manual check left in the store is there for the next test run (measured: a
   pending change left by hand made a negative pair fail). Their reports land in
-  `build/outputs/androidTest-results`, which `redcheck.py` also reads.
+  `build/outputs/androidTest-results`, which `redcheck.py` also reads. **Claim a red or a green only
+  through the Gradle task**: `am instrument` by hand writes no JUnit XML at all — nothing for
+  `redcheck.py` to read — so keep it for exploratory driving, where no colour is claimed.
 - **`ui.py kill` checks that the process really died.** `am kill` once left it alive on API 37.1
   (same pid before and after) while saying it had killed it, and two process-death checks proved
   nothing (measured). `kill` now reads the pid after, finishes a debuggable app with `kill -9`, and

@@ -53,13 +53,14 @@ git clone https://github.com/DesarrolloAntonio/qa-campaign ~/.claude/skills/qa-c
 Then, in the project you want to test:
 
 ```bash
-mkdir -p docs/qa
-cp ~/.claude/skills/qa-campaign/templates/CAMPAIGN.md docs/qa/   # the other templates are models, not copies
 cp ~/.claude/skills/qa-campaign/qa.config.example.json qa.config.json
 printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore
 ```
 
-Fill in `qa.config.json` (the scripts read `android.*` and `devices`; the rest documents the plan),
+Setup writes the campaign's own `CAMPAIGN.md` — don't pre-copy the template: a blank one in the docs
+folder reads as a campaign that was never finished.
+
+Fill in `qa.config.json` (the scripts read `android.*`, `devices`, `managedDevices` and `campaign`; the rest documents the plan),
 write your backend adapter ([`adapters/README.md`](adapters/README.md)) with its credentials in
 `qa.credentials.json`, and ask Claude to run the campaign.
 
