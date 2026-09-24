@@ -16,6 +16,9 @@ if it is too big to read here, a link to NN-<area>-inventory.md>`
 |---|---|---|---|---|---|
 | `<ID>` | **P0/P1/P2** | `<from a change since the earlier campaign | missed last time | first campaign>` | **`<one bold sentence a non-developer understands>`** — then the mechanism, and the measurement that proves it | `<file:line>` | one of: ✅ **fixed and verified in the running system**: `<what you did and what you saw>` · `<N>` tests, seen red for the reason they name (R6), on the build with the fix · negative pair `<yes / n/a>` — or — ✅ **device-only, no test — because `<why>`** — or — ⏸ **deferred**, queue item `<#>`: `<P2 outside the fix mode / a product decision>` — or — 📋 **reported** (report-only mode): steps to reproduce · evidence from each oracle · likely fix |
 
+> Evidence names **which** fixture, account and build, and the order the oracles were read in (R5):
+> two oracles about two different rows read exactly like two oracles about one. Every severity names the
+> line of the table it matches; when none of them fits, the finding goes to the queue instead.
 > Severity scale: SKILL.md §2.3. What must be fixed before the gate depends on the fix mode in
 > CAMPAIGN.md; in report-only mode nothing is.
 > A fix that touched code beyond this process's own module ends its Status with
@@ -35,6 +38,7 @@ Every screen this process calls verified, with its screenshot opened — not onl
 | What | Result |
 |---|---|
 | `<the full cycle you drove, in the order you drove it>` | ✅ / ❌ |
+| `<absence sweeps re-run for this module (R4), if its code changed: candidates · discarded · driven · confirmed · unproven>` | ✅ / — |
 | Full repository test suite | ✅ `<N>` tests, 0 failures |
 | Crashes / hangs (of the app, not the harness) | ✅ 0 / 0 |
 | `QA_` fixtures cleaned and verified through the API | ✅ |
