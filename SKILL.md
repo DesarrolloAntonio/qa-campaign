@@ -1,6 +1,6 @@
 ---
 name: qa-campaign
-description: Run a gated, evidence-based pre-release QA campaign on any project you can drive and query. Enumerate every control, sweep for what the product is MISSING (not just what it has), cross-check every claim against independent oracles instead of one, and prove every regression test by watching it fail first. Use when preparing a release, auditing a feature end to end, or when "we tested it" needs to mean something. The rules are platform-independent; an Android harness is included, and any other platform needs a harness that implements the seven-capability contract in harness/README.md.
+description: Test a whole product before release and come out with evidence instead of confidence — gated processes, every control inventoried, sweeps for what the product is MISSING, every claim checked against more than one oracle, and no regression test that has not been watched failing first. Use when asked to test an app or a feature properly, to audit one end to end, to prepare a release or a store submission, or when "we tested it" has to mean something. An Android device harness is included; other platforms need their own. Not for writing unit tests, chasing one known bug, or setting up CI.
 license: MIT
 metadata:
   keywords:
@@ -28,6 +28,17 @@ The rules are generic. The **examples are not**: they come from the campaigns th
 and tried on — a multiplatform client for a self-hosted server (notes, boards, bookmarks), a bookmarks
 client, a travel log, and a fleet terminal with a realtime cloud database. When a rule mentions a
 trash, a shared note or a server quirk, read it as *"the kind of thing"*, and substitute your own.
+
+**Where things are.** This file: the rules (§1), how a campaign runs (§2), what the harness gives you
+(§3). Read §1 before running anything; the rest is read when you reach it.
+
+| When | Read |
+|---|---|
+| Setting a campaign up | §2.1, then [`references/setup-notes.md`](references/setup-notes.md) at steps 5 and 6 |
+| Filling in the plan, a process report, an inventory | [`templates/`](templates/) |
+| Asking the server what is true | [`adapters/README.md`](adapters/README.md) |
+| Driving Android, or something makes no sense | §3, [`harness/README.md`](harness/README.md), [`harness/android/GOTCHAS.md`](harness/android/GOTCHAS.md) |
+| Another platform | [`harness/README.md`](harness/README.md) — the seven capabilities a harness must provide |
 
 ---
 
@@ -792,46 +803,18 @@ tools take four, and a second round gets skipped:
    phone and tablet layouts. Any physical device attached that is not explicitly the test device is
    **off-limits** — list the test devices in `devices` and pass `--device` on every command. Once
    `devices` lists anything, the scripts **refuse any device that is not on the list**, so nothing
-   lands on someone's personal or work phone by accident. **That guard is the harness's, not adb's**:
-   an `adb install`, an `adb reverse`, a `settings put` or a Gradle task typed straight into the shell
-   goes wherever adb decides. Carry the device on each of them —
-   `ANDROID_SERIAL="$(ui.py serial qa)" adb install app.apk`, same prefix for `installDebug` and
-   `connectedAndroidTest`, which honour it too. Per command: a shell variable doesn't survive between
-   calls. List an emulator by its AVD —
-   `"qa": "avd:Resizable_Experimental"` — not by its serial: `emulator-5554` is only *whichever
-   emulator booted first*, so the same serial can name another campaign's emulator tomorrow
-   (measured). Start emulators with `-port <even number>` so their serial can be found from the
-   process list. A project-side script that talks to the device (a store reader, an injector) gets
-   the serial from `ui.py serial <alias>` — `avd:…` is not a serial.
-   **More than one app in the repo?** Then the devices question asks **which one** first: the module,
-   the flavor and the build type, and the `applicationId` read from that module's build file. A
-   monorepo with dozens of application modules has dozens of ids, and `android.package` holds exactly
-   one — picked wrong, every command drives another app that looks just like it (audit). Record the
-   answer next to the device in `CAMPAIGN.md`; `installed --apk` then ties the device to that build.
+   lands on someone's personal or work phone by accident — **but that guard is the harness's, not
+   adb's**, and a monorepo has more than one app to pick from. Both, with the device-naming rules
+   (AVD not serial, `-port`, `ANDROID_SERIAL` on raw adb and Gradle):
+   **[`references/setup-notes.md`](references/setup-notes.md) §Devices**.
 6. Copy `qa.config.example.json` to `qa.config.json`. The scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
    the rest (`server`, `session`, `fixtures`, `app`) documents the plan. **Secrets never go in it**:
    the adapter reads a separate `qa.credentials.json` (its shape: `adapters/README.md`).
 
-   **When you ask the human to fill in `qa.credentials.json`, say what it is for in the same
-   message.** "The agent never types a password" next to "put the password in this file" reads as a
-   contradiction — measured twice, in two projects. One sentence settles it: *the scripts read it to
-   sign in through the API, check the server and inject the session into the app; I never see the
-   password and never type it into the login screen — the one typed login is yours.*
+   **Saying what that file is for, using one the project already has, and creating an empty one to
+   fill in** — three notes that have each cost a round trip:
+   **[`references/setup-notes.md`](references/setup-notes.md) §Credentials**.
 
-   **Test credentials already kept in another file** (`e2e.properties`, `.env.test`)? When the
-   project's own scripts — an adapter, an injection test — already read it, **use it as it is** and
-   name it as the source in `CAMPAIGN.md`: a second copy that nothing reads is one more place for the
-   passwords to leak from (measured). Only for scripts written now, and never by asking the human to
-   copy them: generate `qa.credentials.json` from that file with a short script that writes
-   the values without printing them and reports only the keys it filled. Leave the original where it
-   is — whatever reads it still does — and record it as the source in `CAMPAIGN.md`, so a changed
-   password is regenerated rather than debugged.
-
-   **No credentials anywhere?** Create the file for the human to fill in: add it to `.gitignore`
-   first (step 7), then write it with mode `600` and **empty values**, in the shape this server signs
-   in with, for the accounts agreed in step 3 — `{"accounts": {"A": {"username": "", "password":
-   ""}}}`. Give its path and say what goes in each field. When the human says it is filled in, check
-   that no value is empty, naming keys only.
 7. Add both to the project's `.gitignore` — the skill's own `.gitignore` does not apply to your
    repo: `printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore`.
 8. Write the **API adapter** for the test server agreed in step 3 (see `adapters/README.md`). This
@@ -935,129 +918,40 @@ command names; nothing above this line changes.
 pixels — it is text, it can be asserted on, and it is cheap.
 
 ```bash
-ui.py --device phone dump               # device by alias from qa.config.json (or --serial / ANDROID_SERIAL)
+# Run it from the project root, so it finds qa.config.json:
+#   python3 ~/.claude/skills/qa-campaign/harness/android/ui.py --device phone dump
+ui.py --device phone dump               # the screen as text; device by alias (or --serial / ANDROID_SERIAL)
 ui.py tap "text=Add item"               # selectors: text= text~= desc= desc~= id= id~= class= class~=
-                                        #            clickable= scrollable= enabled= checked= selected=  · --index N
-                                        # warns when the selector hits several different controls
+                                        #            clickable= scrollable= enabled= checked= selected= · --index N
 ui.py tap "text=Save" --expect "text=Edit item"   # only if that screen is showing; stops otherwise
-ui.py tap "desc=Delete" --in "text=QA_Item1"     # the Delete of THAT item — refuses if it can't be sure
-ui.py installed --apk <file>            # version, install time, and whether the device runs that exact file
-ui.py avds                              # every AVD, its version and size, which are running and which are in use — touches no device
-ui.py serial <alias>                    # the adb serial an alias means right now, for project-side scripts
-ui.py release                           # free the device for another campaign when this one stops
-ui.py --help · ui.py <command> --help   # every command and every flag, from the script itself
-ui.py wait "text~=Saved" --timeout 10   # gate on something appearing (or --gone); it doesn't scroll
-ui.py watch 6 --until "text~=expired"   # every label that shows for 6 s — snackbars last ~2 s, a dump ~1.5
-ui.py state "text=Public"               # ON/off of the switch beside that label
-ui.py assert "text=Delete" --absent     # exit 1 if wrong — what a script gates on
-ui.py type "QA_Item1"
-ui.py hide-keyboard                     # BACK only if the keyboard is up; fails if the screen went with it
-ui.py scroll-to "text=QA_Item1"
-ui.py rotate 1                          # reads the rotation back from the window manager (R9)
-ui.py size tablet                       # a resizable emulator becomes phone | unfolded | tablet — read back too
+ui.py tap "desc=Delete" --in "text=QA_Item1"      # the Delete of THAT item — refuses if it can't be sure
+ui.py assert "text=Delete" --absent     # exit 1 if wrong — what a script gates on (`wait`, `watch`, `state` too)
+ui.py installed --apk <file>            # does the device run that exact build? (§2.2 step 5)
 ui.py kill                              # process death that KEEPS saved state (R9); `stop` discards it
-ui.py open "myapp://item/42"            # a deep link — an entry point the inventory must include (R3)
-ui.py a11y                              # touch targets, overlaps, unnamed icons, off-screen
-ui.py db <alias> "select ..."           # the app's own database, pulled with its -wal; secrets hidden
-ui.py files                             # every file the app keeps — find where its stores really are
-ui.py file <alias> [--out f]            # settings files and other stores; text printed with secrets hidden
-ui.py shot <name> --dir qa-shots
-ui.py crashes                           # crashes/ANRs OF THE APP (not of the harness — R8)
-ui.py demo on                           # frozen status bar, so two screenshots are comparable
-ui.py log --grep login                  # the running app's log, secrets hidden; never `adb logcat -c`
+ui.py db <alias> "select ..."           # the app's own store, secrets hidden (`files`, `file`, `log` too)
+ui.py shot <name>                       # with `demo on` first, so two screenshots are comparable
+ui.py crashes                           # crashes/ANRs OF THE APP, not of the harness (R8)
+ui.py avds · serial <alias> · release   # which AVDs exist and are in use · alias → serial · free the device
+ui.py --help · ui.py <cmd> --help       # every command and every flag, from the script itself
 ```
 
-`harness/net.sh on|off|status` toggles airplane mode and **waits until the change is real**: `off`
-until no validated network remains, `on` until one is validated again. `net.sh reach` checks that
-the **device** can open a connection to the test server — a validated network only means internet,
-and the computer reaching the server says nothing about the device. When it can't, try **another
-address for the same server** first — a VPN or Tailscale name the device already resolves — before
-building a relay. Measured: an emulator got "No route to host" on the server's LAN address and
-reached it at once by its Tailscale name; the relay built the first time was never needed. **A name
-the computer resolves and the emulator doesn't** is usually DNS: an emulator takes the computer's
-first DNS server when it boots, and with another VPN in front of it, the VPN's names stop resolving
-on the device (measured with Tailscale). Boot it with `-dns-server <that VPN's resolver>` —
-`100.100.100.100` for Tailscale.
+`harness/net.sh on|off|status|slow|full` toggles airplane mode and **waits until the change is real**,
+refusing when it cannot prove it. `net.sh reach` checks that the **device** can open a connection to
+the test server — a validated network only means internet, and this computer reaching the server says
+nothing about the device. When it can't, try **another address for the same server** first (a VPN or
+Tailscale name the device resolves) before building a relay; if the computer resolves it and the
+device doesn't, that is DNS — [`harness/android/GOTCHAS.md`](harness/android/GOTCHAS.md) has the fix.
 
 Every command first checks that a device answers and refuses with adb's own message if not. Nothing
 project-specific is in the scripts: package, database aliases and device aliases come from
 `qa.config.json`. Pointing the harness at a different app is one config file.
 
-### Gotchas that cost a session each
+### Gotchas
 
-- **A test device that isn't disposable** — a managed work phone, someone's own phone — goes in
-  `managedDevices`: `rotate`, `size`, `demo`, `clear-crashes` and `net.sh on/off/slow/full` then refuse
-  on it unless the human agrees (`--allow-device-change`). Never `adb logcat -c` on such a device: it
-  clears everyone's log (measured). The harness writes its files to `/data/local/tmp`, which a
-  managed phone's USB policy leaves readable where `/sdcard` wasn't.
-- **Two campaigns on one computer** share one adb server and one set of AVDs. An AVD runs **once**
-  at a time — the emulator refuses a second instance — so campaigns running in parallel each need
-  their own AVD; campaigns that take turns can share one (different app ids keep their data apart).
-  Never `adb kill-server`: it cuts the other campaign's device. A plain adb command that starts a
-  stopped server is harmless. The `devices` allow-list keeps each campaign on its own serial.
-  Running the harness **from another campaign's folder counts as that campaign** — the claim names it
-  by its config, so it can't protect the campaign from you: to look at a campaign's device, ask that
-  campaign or wait until it releases it (measured: it resumed while the device was being driven from
-  its own folder). The other campaign's app stays in the task stack, so every input command refuses when another
-  app is in front (`--any-app` for a share sheet or a browser on purpose). **Taking turns on one AVD:** every harness command stamps the device with its campaign —
-  `campaign` in `qa.config.json`, else the git root, so a second config of the same campaign (another
-  app id) still counts as the same — and a command from another campaign within 30 minutes is refused — `ui.py avds` shows who has it. Run
-  `ui.py release` whenever a campaign stops, so the other one doesn't wait out the 30 minutes.
-- **Pull the `-wal` file too** when copying a SQLite database off the device, or you read stale rows.
-- `uiautomator dump` reports **visible** bounds. Half-scrolled elements look small. (R8)
-- Two `uiautomator dump` calls at once crash each other with *"UiAutomationService already
-  registered!"*, and that lands in the crash buffer looking like an app crash. Filter by package.
-- A `@Preview` is not a dead control. It is on S2's discard list for a reason.
-- `id=` selectors read `resource-id`. In Compose that only exists if the app enables
-  `testTagsAsResourceId`; without it they match nothing, silently. `text=`/`desc=` always work.
-- `ui.py db` uses `run-as`, which needs a **debuggable** build. On a release build it refuses and
-  says so.
-- **Not every store is in `databases/`.** WorkManager keeps its queue in
-  `no_backup/androidx.work.workdb`; DataStore lives in `files/datastore/` and is binary. Run
-  `ui.py files` once per app and point the aliases at what is really there.
-- **Some emulator images revert `user-rotation` within seconds** — seen on an older resizable phone
-  AVD, not on a newer one (API 37 Resizable kept the lock). It depends on the image, so don't avoid
-  resizable emulators for it: `rotate` re-issues the lock once and then refuses rather than pass; only
-  if it refuses on *your* device, rotate from the emulator's toolbar or pick another device for R9.
-- **A text with quotes can look cut short** — a campaign saw "No countries found for " with the
-  search term gone, while the app showed it right. Not reproduced on API 37: the dump escaped `"` and
-  `'` and read the whole text back (measured). If a text looks cut, check it with `ui.py shot` before
-  filing anything.
-- **A modal bottom sheet or dialog is its own window**, and the dump returns only that window: the
-  screen behind it — a snackbar raised there included — is invisible until it closes. Close it and
-  dump again before concluding anything is missing (measured: a message was found only that way).
-- **Gboard's stylus pill can sit on top of the app** — over a nav rail it took a tap meant for the
-  rail and raised another app's permission dialog. The input guard caught it; `adb shell am force-stop
-  com.google.android.inputmethod.latin` clears the pill without changing a setting (measured).
-- **`ui.py size` changes width and density together** (tablet 240 dpi, phone 420): compare layouts in
-  dp, never columns or pixels across presets — the tool warns when the density changed.
-- **Kotlin Multiplatform: no comma in a backtick test name.** Kotlin/Native rejects it, and it surfaces
-  as an iOS *compile* error in `allTests` minutes after the edit, not as a test failure (three times
-  in one campaign).
-- `input text` **drops non-ASCII** (ñ, é, emoji): every fixture typed by the harness is ASCII, so
-  non-ASCII data never round-trips through STORE and API unless you create it through the API.
-- **Gboard on an emulator shows a stylus pill, not a keyboard**, every time a field gets focus — a
-  small floating toolbar that doesn't take BACK. `ui.py show-keyboard` brings a real keyboard up with
-  the pill's own Alt+K; `hide-keyboard` sends nothing while only the pill is up. For the whole run,
-  `settings put secure stylus_handwriting_enabled 0` gives the keyboard from the next focus — a device
-  setting, so ask first.
-- **A Toast is not in the accessibility tree**, so `dump`, `find` and `assert` never see one; a
-  snackbar is. To read a Toast: `adb shell uiautomator events` while you trigger it — it is a
-  UiAutomation session, so never at the same time as a `dump` — or a screenshot taken at once.
-  Take screenshots with `ui.py shot`, not a raw `adb exec-out screencap`: on a two-display emulator
-  the raw one comes out unreadable (measured), and `shot` picks the display.
-- **Tests on the device reinstall the app, and uninstall it when they finish.** Android's
-  `connectedAndroidTest` installs over the app **keeping its data**, runs, and removes it. So after
-  every red or green on the device the injected session is gone — inject it again before driving by
-  hand — and whatever a manual check left in the store is there for the next test run (measured: a
-  pending change left by hand made a negative pair fail). Their reports land in
-  `build/outputs/androidTest-results`, which `redcheck.py` also reads. **Claim a red or a green only
-  through the Gradle task**: `am instrument` by hand writes no JUnit XML at all — nothing for
-  `redcheck.py` to read — so keep it for exploratory driving, where no colour is claimed.
-- **`ui.py kill` checks that the process really died.** `am kill` once left it alive on API 37.1
-  (same pid before and after) while saying it had killed it, and two process-death checks proved
-  nothing (measured). `kill` now reads the pid after, finishes a debuggable app with `kill -9`, and
-  refuses when it is still alive.
+Android-specific traps that each cost a session — a managed device, two campaigns on one computer,
+Compose `id=` selectors, the keyboard's stylus pill, a Toast that is not in the tree, tests on the
+device reinstalling the app: **[`harness/android/GOTCHAS.md`](harness/android/GOTCHAS.md)**. Read it
+before deciding that a screen, a control or a crash is the app's fault.
 
 ---
 
