@@ -2,30 +2,82 @@
 
 [![skills.sh](https://www.skills.sh/b/DesarrolloAntonio/qa-campaign)](https://www.skills.sh/DesarrolloAntonio/qa-campaign)
 
-**A pre-release QA campaign your coding agent runs on your app — and the rules that stop it from
-telling you everything is fine.**
+**Your coding agent tests your app the way a QA engineer would — for hours, on a real device, against a
+real server — and fixes what it finds.** It is a skill for Claude Code: instructions plus an Android
+harness. No service, no account, MIT.
 
-It drives real builds on real devices, reads your app's own database and your server behind its back,
-cuts the network, and fixes what it finds with a regression test it watched fail first.
+## What happens when you run it
+
+1. You type `/qa-campaign` in your project. It asks first — which build, which devices, which test
+   accounts, whether it may commit — and touches nothing until you have answered.
+2. It installs your app on a device or emulator and **uses it**: taps through every screen, fills the
+   forms, kills the process, cuts the network, rotates, signs in as a second account.
+3. It does not believe the screen. It reads your app's own database, and it asks your server directly.
+   A "Saved" over a request the server refused is a bug it catches, not a pass.
+4. It fixes what it finds, and writes a test for each fix **that it watched fail first**. A test that
+   passes with and without the fix proves nothing, so it does not count.
+5. You get a branch: a commit and a report per area, and a short list of the decisions only you can
+   make.
+
+Expect **hours**: a full pass on a mid-sized app is a working day. Nothing is pushed — you review a
+branch at the end.
+
+## How it drives your app
+
+Four scripts and a contract. Nothing project-specific lives in them — package, databases and devices
+all come from one `qa.config.json`.
+
+| | |
+|---|---|
+| **Reads the screen as text, not pixels** | the `uiautomator` accessibility tree, so a selector is something you can assert on. It refuses when one matches two different controls instead of tapping the first |
+| **Reads your app's own store** | `run-as` + SQLite, with credential-looking values hidden — and its files, its logcat and its crashes |
+| **Asks your server** | through a small adapter you write: the one project-specific piece, and the only thing this skill cannot hand you |
+| **Breaks things on purpose** | `fake_server.py` answers 500, 401, one route at a time, or too slowly; `net.sh off` cuts the network and **proves** it went down from the app's side, not just Android's |
+| **Proves red before green** | `redcheck.py` runs the test and judges it from the JUnit XML *that run wrote* — RED, GREEN or NOT RUN — and can apply the deliberate break itself, putting the file back byte for byte |
+| **Is under test itself** | `tests/run`: 51 contract tests against a fake device, nothing plugged in. A harness that lies is worse than no harness |
 
 ```bash
-npx skills add DesarrolloAntonio/qa-campaign
+ui.py tap "text=Save"                                      # or text~= desc= id= class= clickable= …
+ui.py assert "text=Delete" --absent                        # what a script gates on
+ui.py db main "select id, title, syncStatus from items"    # the app's own store
+ui.py kill                                                 # process death that keeps saved state
+ui.py a11y                                                 # small targets, overlaps, unnamed icons
+net.sh off · net.sh reach                                  # cut the network · can the APP reach the server
+redcheck.py --expect red --test SaveTest -- ./gradlew :app:test --rerun
 ```
 
-Then, in the project you want to test: **`/qa-campaign`**. There is no prompt to write — it
-interviews you first and touches nothing until you have answered.
+The method is the other half, and the larger one: [`SKILL.md`](SKILL.md), fourteen rules, each of which
+earned its place by something going wrong on a real campaign.
 
-## Ten bugs it found
+## What you need
 
-Every one of these was in code that passed its project's own test suite. Most were in code a human had
-clicked through, and three were in code a *previous* campaign had already approved.
+- **Claude Code**, or any agent that loads skills. This is a skill, not a service: nothing to sign up
+  for, nothing runs on anyone else's machine.
+- **An Android device or emulator**, with `adb` and Python 3. The harness is Android-only today. The
+  method is not — but web, iOS or desktop each need a harness written to a documented contract.
+- **A test server and test accounts** where data can be created and deleted. Never a production account.
+- **A branch of its own.** It changes your source: fixes, tests, and deliberate breaks that it undoes.
 
-| What it found | Why the tests and the click-through both missed it |
+## What it has found
+
+Every one of these was in code that passed its project's own test suite, in an app that had shipped:
+
+- The **signed release crashed on launch**, every screen, every time. The debug build was fine: R8 had
+  renamed a class that the SQLite layer looks up by name at runtime.
+- **Saving one field silently reverted the others** — the write sent the whole local row, so anything
+  changed elsewhere came back undone. The screen said "saved", and the server agreed.
+- **Editing a bookmark deleted the tags** someone had added from the web UI. Found on a commit an
+  earlier pass had already approved, with nothing written in between.
+
+[`examples/shiori/`](examples/shiori/) is one whole run, published unedited: the plan, the findings, the
+screens it looked at, the questions it sent back — and the two bugs it found in its own tools.
+
+<details>
+<summary><b>Seven more, and why the tests and the click-through both missed them</b></summary>
+
+| What it found | Why it was missed |
 |---|---|
-| The **signed release crashed on launch** — every module, every time. The debug build was fine: R8 had renamed a class the SQLite JNI layer looks up by name at runtime. | Nobody installs the *signed* build on a physical phone and opens every screen. The store does that for you, after you ship. |
-| **Saving one field silently reverted the others.** The write sent the whole local row, so anything changed elsewhere in the meantime came back undone. | The screen said "saved" and the server agreed. It is only visible if you read the server with a second client. |
 | **An edit made offline disappeared** if you edited the same record online before the queue drained. | Offline tests are written offline. This one needs the two states mixed against the same record, in that order. Four of nine P0s were this shape. |
-| **Editing a bookmark deleted the tags** someone had added from the web UI. | Same shape, another app — and found on a commit a previous campaign had signed off, with nothing written since. |
 | **A bookmark created offline was "adopted" by a different one** when the queue drained: `POST` on an existing URL updates instead of creating. | That is the server's real behaviour, not its documented one. You find it by measuring the server, not by reading its API docs. |
 | **A `401` was read as "you don't have permission"**, which left notes read-only forever. | An expired session is not a refusal. To tell them apart you need a server that fails on purpose — not a broken real one. |
 | **The app said "saved", the server had answered `4xx`, and the queue retried it forever** — in five different places. | Optimistic UI. The only witness is the server, and nothing in the app was asking it. |
@@ -33,14 +85,7 @@ clicked through, and three were in code a *previous* campaign had already approv
 | **"Privacy Policy" and "Help" were dead buttons** — which is a Play Store blocker, not a cosmetic bug. | A catalogue derived from your code enumerates what the app *has*. This is an absence, and absences need their own sweep. |
 | **Rotating the screen with a dialog open threw away what you had typed** — two apps, several screens. | The test that proved it green first also passed *without* the fix, because it never checked that the screen had actually rotated. That is R9, and the campaign caught itself. |
 
-### The score so far
-
-| Where | Result |
-|---|---|
-| A multiplatform Nextcloud client (closed source) | **8 P0 + 19 P1 fixed**, each with a test watched failing first, each verified on the device; the lesser ones queued with a recommendation each |
-| An Android client for [Shiori](https://github.com/go-shiori/shiori) (public) | **1 P0 + 2 P1**, on code a previous campaign had approved — the whole campaign is published, unedited, in [`examples/shiori/`](examples/shiori/) |
-| The release it was extracted from | a dozen gated processes, **69 defects found, 67 fixed** (the other two were product decisions), and a 1,103-test suite green at the end |
-| Also run on | a page keeper, a travel log and a fleet terminal — four more products, one config file each |
+</details>
 
 ### Four families explain almost every severe one
 
@@ -74,9 +119,7 @@ So, every time:
 
 It is a tool that acts. **You run it at your own risk** — see the licence: no warranty of any kind.
 
-## How to start one
-
-Install the skill once — either way works:
+## Try it
 
 ```bash
 npx skills add DesarrolloAntonio/qa-campaign                 # installs and links it for you
@@ -92,7 +135,7 @@ printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore
 
 Fill in `qa.config.json` — the scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
 everything else in there documents the plan for you and for the agent. Then, in Claude Code, **in that
-project**, type `/qa-campaign`. That is the whole entry point.
+project**, type `/qa-campaign`. That is the whole entry point: there is no prompt to write.
 
 Two things you do not have to prepare: the campaign writes its own `CAMPAIGN.md` (don't pre-copy the
 template — a blank one in the docs folder reads as a campaign that was never finished), and it writes
@@ -205,26 +248,6 @@ From an emulator, reach it with `adb reverse tcp:18099 tcp:18099` and `http://12
 app — and check it with `net.sh reach`, which asks **as the app** and speaks HTTP over the connection,
 because an open port is not a server: a dangling `adb reverse` accepts the connection with nothing
 behind it (measured on API 37).
-
-## The harness
-
-`harness/android/ui.py` drives an Android device over `adb`, reading the accessibility tree rather
-than pixels — it is text, it can be asserted on, and it is cheap.
-
-```bash
-ui.py --device phone tap "text=Add card"   # selectors: text= text~= desc= desc~= id= id~= class= class~=
-                                           #            clickable= scrollable= enabled= checked= selected=
-ui.py a11y                                 # small targets, overlaps, off-screen, unnamed icons
-ui.py db main "select id, title, syncStatus from items"
-ui.py rotate 1                             # and reads the rotation back from the window manager
-ui.py kill                                 # process death that keeps saved state
-ui.py crashes                              # the APP's crashes, not the harness's
-```
-
-`harness/net.sh on|off` toggles airplane mode and waits until the change is real in both directions.
-
-Every command refuses, with adb's own message, when no device answers. Everything project-specific
-lives in `qa.config.json`; there is nothing to edit in the scripts.
 
 ## Any project, not just mobile
 
