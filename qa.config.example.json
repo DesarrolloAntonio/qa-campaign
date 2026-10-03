@@ -20,7 +20,7 @@
       "other": "other_database.db",
       "work": "no_backup/androidx.work.workdb"
     },
-    "_databases": "alias → a SQLite file: a bare name is inside the app's databases/ folder, a path with / is relative to its data folder (WorkManager's queue lives in no_backup/). `ui.py db <alias>` refuses an alias that is not listed here. `ui.py files` shows where the stores really are.",
+    "_databases": "alias → a SQLite file: a bare name is inside the app's databases/ folder, a path with / is relative to its data folder (WorkManager's queue lives in no_backup/). `ui.py db <alias>` refuses a name that is not listed here, unless it is itself a path (it has a / or ends in .db). `ui.py files` shows where the stores really are.",
     "files": {
       "settings": "shared_prefs/settings.xml",
       "session": "files/datastore/session.preferences_pb"

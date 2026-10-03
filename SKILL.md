@@ -935,7 +935,7 @@ tools take four, and a second round gets skipped:
    fill in** — three notes that have each cost a round trip:
    **[`references/setup-notes.md`](references/setup-notes.md) §Credentials**.
 
-7. Add both to the project's `.gitignore` — the skill's own `.gitignore` does not apply to your
+7. Add them to the project's `.gitignore` — the skill's own `.gitignore` does not apply to your
    repo: `printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore`.
 8. Write the **API adapter** for the test server agreed in step 3 (see `adapters/README.md`). This
    is the only part the skill cannot give you: it's how the campaign asks the server what is true.

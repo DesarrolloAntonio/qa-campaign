@@ -7,7 +7,9 @@
 
 **Offline depth:** `<none | short | full>` — because `<the clue in the code: a pending-writes queue, a cache, no server…>` (SKILL.md R1) ·
 **Fix mode:** `<fix severe | fix all | report only>` · **Commits:** `<at each gate | never — leave for review>` ·
-**Docs live in:** `<path, and whether it is versioned>` — asked once at setup (SKILL.md §2.1), not per finding.
+**Docs live in:** `<path, and whether it is versioned>` ·
+**Build users get:** `<store release | flavor | the debug build a device manager pushes>` — findings are rated for that one (SKILL.md §2.3) —
+asked once at setup (SKILL.md §2.1), not per finding.
 
 **What already existed** (SKILL.md §2.1, asked before building anything) —
 **Devices:** `<which, and any attached device that is off-limits>` ·

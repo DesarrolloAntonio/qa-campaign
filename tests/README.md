@@ -11,7 +11,7 @@ tests/run test_net        # one file
 
 **No device, no network, no project.** Every test runs against `stub_adb.py`, a fake `adb` that answers
 from environment variables, in a temp folder with its own `qa.config.json`, its own `HOME` and its own
-lock folder. They pass on a laptop with nothing plugged in, in a couple of seconds, so there is no
+lock folder. They pass on a laptop with nothing plugged in, in about half a minute, so there is no
 excuse for not running them.
 
 What they pin down is the **contract**, not the implementation:
@@ -37,6 +37,11 @@ What they pin down is the **contract**, not the implementation:
 | call a crash NOT RED, and a cached task NOT RUN | neither is the test's own verdict |
 | refuse a `--test` that matches two classes | the colour would be a mix of two different tests |
 | undo a `--break` byte for byte, and refuse one that is not unique | a half-restored source is the worst thing this tool can leave behind |
+| read a report time with no zone marker both ways before calling it stale | Gradle up to 8.x stamps GMT with no zone; read as local time, a fresh red looked hours old |
+| stop everything the test command started when it times out | a child left running can write a report after the break was undone |
+| count every package `packagePrefix` lists as the app — for input and for crashes | "0 crashes" over a crash of the listed debug variant is a silent all-clear |
+| refuse a `$ADB` that is not a file, in `net.sh` as in `ui.py` | falling back to the adb on PATH drives through a different adb than the one named |
+| hide a credential in the fake server's request line, and hide before cutting the body | `?api_key=…` and a cut-off object under a secret key both printed |
 | say what a green does **not** prove | the runner passing is not the test exercising the behaviour |
 
 Adding a test: put it beside the others, use `harness.Case` (it builds the workspace and the stub), and
