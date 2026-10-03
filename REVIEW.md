@@ -1,10 +1,9 @@
 # Review — qa-campaign
 
-Branch `review/fable-pass`, from `a1ee970`. Phases 1–4 done (map, promises vs code, harness
-correctness, the skill as instructions). Phases 5–6 not started. Nothing pushed.
+Branch `review/fable-pass`, from `a1ee970`. All six phases done. Nothing pushed, no PR.
 
 `./tests/run`: **51 tests, OK, 27.8 s** before · **71 tests, OK, 34.8 s** after (Python 3.14.8, bash
-3.2.57, macOS; the harness sources also parse on the system Python 3.9.6). No device was used: every
+3.2.57, macOS; the 71 also pass on the system Python 3.9.6, 42.7 s). No device was used: every
 claim below about device behaviour comes from the code and the stub.
 
 ## (a) Fixed
@@ -25,6 +24,7 @@ Each regression test was seen failing before its fix, on its own assertion.
 | 10 | **`fake_server.py`: `--header` with no colon** started fine and then dropped every connection (the app sees a network failure, not the status asked for). Refused at start now. | the server started | `3e262d1` |
 | 11 | Doc drifts: README test count (51 → 71); `tests/README` "a couple of seconds" (it is ~35 s); `templates/inventory.md` pointed permissions at R4 (the rule is in R5); `templates/CAMPAIGN.md` had no slot for "which build users get" (asked in §2.1, rated by in §2.3); SKILL.md §2.1 step 7 "both" for three entries; `qa.config.example.json` said `db` refuses any unlisted alias (it also takes a path); `ui.py` docstring omitted `secretKeys`, `managedDevices`, `campaign`. | — (docs) | `f98b139`, `80a8a25` |
 | 12 | SKILL.md: R5 announced "four ways" the UI oracle says less and listed five; R10 announced "three more things" on the real server and listed five. | — (docs) | `208d7ad` |
+| 13 | README: the `qa.credentials.json` example carried `server.url` (the shape in `adapters/README.md` has none); both install commands sat in one block; `net.sh off · net.sh reach` was not shell; "it asks" for two things the skill decides from the code; two of three fix modes named; the docs folder stated as fixed; "Python 3" with no version (3.9+, verified). `examples/shiori/README.md` described `00-setup.md` as holding the harness, session injection and API oracle — it is a setup delta without them. | — (docs) | `fd20e1b` |
 
 **New tests for paths nothing covered** (`2e131e5`). No bug found in them; each was seen red by one
 deliberate break in the harness, then the break was put back:
@@ -46,6 +46,11 @@ Also in `80a8a25`: a control test for the other direction of fix 1 (another app'
 the app's).
 
 ## (b) Proposals — ranked, none applied
+
+Grouped by phase, ranked inside each group. **The five with most impact overall:** skill 1 (§2.2 does
+not carry the rules), skill 2 (§2.1 has no step for session injection), skill 3 (UNPROVEN and the
+gate), harness 1 (`type` and backslashes — one device check), docs 1 (the README leaves a dirty tree
+that the skill then stops on).
 
 ### Harness (phase 3)
 
@@ -83,14 +88,10 @@ the app's).
 7. **`redcheck.py`: a report file with only crashes counts as "green"** in the "two report files
    disagree" message (`not f and t > s`). The verdict is still NOT RUN; only the wording is wrong.
 
-8. **README's `qa.credentials.json` example has `server.url` inside it**; `adapters/README.md` gives
-   the shape without it, and the server address lives in `qa.config.json`. One of the two should move
-   (phase 5).
+8. **SKILL.md §3 lists `state` among "what a script gates on"**, but it exits 0 for both ON and off —
+   only a missing switch is exit 1. Either the doc or an `--expect on|off` flag.
 
-9. **SKILL.md §3 lists `state` among "what a script gates on"**, but it exits 0 for both ON and off —
-   only a missing switch is exit 1. Either the doc or an `--expect on|off` flag (phase 4).
-
-10. **Still no test:** `rotate`/`size` read-back, `kill`, `hide-keyboard`, `installed --apk`, `shot`
+9. **Still no test:** `rotate`/`size` read-back, `kill`, `hide-keyboard`, `installed --apk`, `shot`
     on a second display, `reach` over https, `slow`/`full` succeeding, `a11y`'s clipped-vs-small rule.
     The stub needs more state for these (a rotation that changes, a pid that dies).
 
@@ -200,8 +201,57 @@ Read as the agent that has to follow it. Line numbers are SKILL.md's.
 Friction the campaign met and did not log (visible in its reports, not in the friction file): the
 scope question. The Shiori plan records "the scope is only what the new rules can see (user's
 decision)" and the README shows the skill asking "what a new campaign should cover" with three
-options — §2.1's round of four questions has no scope question. Either the skill should have one for
-a repeat campaign, or the README shows something the skill does not ask (phase 5).
+options — §2.1's round of four questions has no scope question (docs 2 below).
+
+### Docs for humans (phase 5)
+
+1. **Following the README makes the skill stop at its second step.** "Try it" has the human copy
+   `qa.config.json` and append three lines to `.gitignore`, then type `/qa-campaign`. §2.1 step 2 runs
+   `git status` and, on uncommitted changes, "stop and ask" — and `.gitignore` is now modified. Steps 6
+   and 7 then do the same copy and the same `printf` again. Either the README leaves both to the agent
+   (it already says the campaign writes its own `CAMPAIGN.md` and credentials template), or it says to
+   commit the `.gitignore` line first. Which one is a choice about the entry point, so it is yours.
+
+2. **The README shows a question the skill does not have.** `docs/img/interview-scope.png` is a real
+   first question — "The code hasn't changed since the last campaign. What should this new campaign
+   cover?", three options with their cost. §2.1's round has four questions and none is scope; a repeat
+   campaign is told only that what changed "sets the order, not what is skipped". The Shiori campaign
+   did narrow its scope on the user's decision. Add the question to §2.1 for a repeat campaign, or
+   caption the image as what an agent may ask.
+
+3. **The install path after `npx skills add` is assumed.** The next block copies from
+   `~/.claude/skills/qa-campaign/`. I did not run the installer (it would install into your machine),
+   so whether it lands there or in the project is unverified; if it is the project, that `cp` fails
+   for everyone who took the first install line. Same root as skill 10.
+
+4. **`examples/shiori/README.md` says the server's LAN address was scrubbed; `CAMPAIGN.md` line 7
+   still has `192.168.1.20:18080`** (and the emulator serial, and account names `shiori` / `Claude`).
+   It is a private-range address, so the exposure is small, but the sentence is not true as written.
+   The example is published "unchanged", so I did not touch it: scrub the address, or change the
+   sentence to "the server's hostname".
+
+5. **The example's summary says "Deferred: 11 P2s".** The close-out lists about 17 P2 findings in 8
+   groups, and the queue has 11 rows of which one is the calibration and one the version bump. I could
+   not find the count that gives 11 P2s.
+
+6. **The example's reports do not have the template's shape**, and the template was already this
+   shape at the skill version the campaign ran on (`3072ea4`): no `Origin` column in any findings
+   table, no "What happened" or "Open" section in `01-eye.md`, sections 2–5 of `CAMPAIGN.md` folded
+   into one line. Reasonable for a delta campaign — but a newcomer told "this is exactly what you
+   get" will compare the two. One sentence in the example's README would cover it.
+
+7. **How many products.** SKILL.md's introduction lists four (a multiplatform client, a bookmarks
+   client, a travel log, a fleet terminal); README's Status says "extracted from a production
+   campaign … then run on four more", which is five.
+
+8. **Prerequisites the README does not list:** `rg` for the S4 sweeps (SKILL.md gives a `perl`
+   fallback in one line), `gh` for sending the friction log (optional), and a build that can run its
+   tests from the command line.
+
+### Promo video (phase 6)
+
+Builds: nothing to fix. Two notes, neither a defect: `package.json` is still named `promo-test`, and
+it has no `typecheck` script (the check below is `tsc` called directly).
 
 ## (c) Verified OK
 
@@ -218,3 +268,6 @@ a repeat campaign, or the README shows something the skill does not ask (phase 5
 - **SKILL.md, internal references:** every "R<n>", "§2.x", "S1–S4", "stop <n>" and "step <n>" it cites exists and says what the citing sentence claims, except the points in (b) phase 4.
 - **SKILL.md vs templates:** the gate order (R1), the six oracles (R5), the six S3 endings (R4), the queue's two groups (R2), the finding statuses and the A/B/C accounts (R7) are the same in `templates/`.
 - **Frontmatter:** `name` matches the folder, the description says when to use it and when not to.
+- **README vs the code:** the four scripts, the seven capabilities, the fourteen rules, the fake-server examples, `android.secretKeys`, the two issue templates and the `Skill at start` command are all as described.
+- **README's references:** issue #13 exists (closed) and PRs #11 and #12 are merged and are the two fixes it says; `docs/img/interview-scope.png` shows what its alt text says; the promo `.gif` and `.mp4` are in the repo.
+- **Promo video:** `npm ci` exit 0 (257 packages, 0 vulnerabilities, Node 22.14.0); `npx tsc --noEmit -p .` exit 0 over the 5 files in `src/` (TypeScript 5.9.3, `strict`); `remotion versions` reports all packages consistent. Not rendered.
