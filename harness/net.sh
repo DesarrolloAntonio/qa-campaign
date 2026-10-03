@@ -19,6 +19,11 @@ set -euo pipefail
 
 find_adb() {
   local c
+  # Same rule as ui.py: a mistyped $ADB used to fall through to PATH — a different adb than the one
+  # the project's scripts use, and nothing said so.
+  if [ -n "${ADB:-}" ] && [ ! -f "$ADB" ]; then
+    echo "\$ADB is '$ADB', which is not a file. Fix it or unset it." >&2; exit 1
+  fi
   for c in "${ADB:-}" "$(command -v adb || true)" \
            "${ANDROID_HOME:+$ANDROID_HOME/platform-tools/adb}" \
            "${ANDROID_SDK_ROOT:+$ANDROID_SDK_ROOT/platform-tools/adb}" \
@@ -385,7 +390,8 @@ case "${1:-status}" in
     # 45 s is enough on an emulator; a physical phone's Wi-Fi took ~70 s (measured): QA_NET_TIMEOUT.
     limit="${QA_NET_TIMEOUT:-45}"
     for _ in $(seq 1 "$limit"); do validated && { echo "network validated"; exit 0; }; sleep 1; done
-    if [ "${ANDROID_SERIAL#emulator-}" != "${ANDROID_SERIAL:-}" ]; then
+    serial_now="${ANDROID_SERIAL:-}"      # unset is a normal call, and `set -u` trips on ${unset#…} in bash 4+
+    if [ "${serial_now#emulator-}" != "$serial_now" ]; then
       echo "⚠️ network not validated after $limit s — if it persists, Cold Boot the emulator" >&2
     else
       echo "⚠️ network not validated after $limit s. A physical phone's Wi-Fi can take over a minute to come back:" >&2
