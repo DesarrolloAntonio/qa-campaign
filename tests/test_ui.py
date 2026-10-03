@@ -1,5 +1,6 @@
 """ui.py's contract: what it refuses, and what it never sends to a device."""
 import os
+import sqlite3
 import subprocess
 import sys
 import unittest
@@ -61,6 +62,26 @@ class Selectors(Case):
         self.assertSaid(r, "first of 2 matches")
         self.assertEqual(1, len([c for c in self.adb_calls() if "input tap" in c]))
 
+    def test_in_takes_the_control_of_the_item_it_names(self):
+        r = self.run_ui("tap", "text=Delete", "--in", "text=QA_Item2", STUB_DUMP=self.with_dump(TWO_ROWS))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(["shell input tap 540 600"], [c for c in self.adb_calls() if "input tap" in c],
+                         "the Delete of QA_Item2, and no other")
+
+    def test_assert_exits_one_when_it_is_wrong_in_either_direction(self):
+        dump = self.with_dump(TWO_ROWS)
+        present = self.run_ui("assert", "text=QA_Item1", "--absent", STUB_DUMP=dump)
+        self.assertEqual(1, present.returncode)
+        self.assertSaid(present, "ASSERT FAILED")
+        missing = self.run_ui("assert", "text=Publish", STUB_DUMP=dump)
+        self.assertEqual(1, missing.returncode)
+        self.assertEqual(0, self.run_ui("assert", "text=Publish", "--absent", STUB_DUMP=dump).returncode)
+
+    def test_find_with_no_match_is_not_exit_zero(self):
+        r = self.run_ui("find", "text=Publish", STUB_DUMP=self.with_dump(TWO_ROWS))
+        self.assertNotEqual(0, r.returncode, "a wait loop gating on `find` must stop on nothing found")
+        self.assertSaid(r, "no match")
+
     def test_a_selector_that_matches_nothing_fails_and_says_what_is_there(self):
         r = self.run_ui("tap", "text=Publish", STUB_DUMP=self.with_dump(TWO_ROWS))
         self.assertNotEqual(0, r.returncode)
@@ -92,6 +113,34 @@ class Guards(Case):
         self.assertNotEqual(0, r.returncode)
         self.assertSaid(r, "com.android.chrome is in front")
         self.assertNoInput()
+
+    def test_a_managed_device_is_not_rotated(self):
+        self.write_config(managedDevices=["phone"])
+        r = self.run_ui("rotate", "1")
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "managedDevices")
+        self.assertEqual([], [c for c in self.adb_calls() if "user-rotation" in c],
+                         "a device that is not the campaign's to alter must not be asked to rotate")
+
+    def test_a_device_another_campaign_is_driving_is_refused_until_released(self):
+        self.write_config(campaign="campaign A")
+        self.assertEqual(0, self.run_ui("claim").returncode)
+        self.write_config(campaign="campaign B")
+        r = self.run_ui("tap", "text=Delete", "--index", "0", STUB_DUMP=self.with_dump(TWO_ROWS))
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "in use by another campaign: campaign A")
+        self.assertNoInput()
+        self.assertSaid(self.run_ui("release"), "left alone")         # B cannot free A's claim…
+        self.write_config(campaign="campaign A")
+        self.assertSaid(self.run_ui("release"), "released")           # …A can
+        self.write_config(campaign="campaign B")
+        self.assertEqual(0, self.run_ui("claim").returncode)
+
+    def test_text_the_device_would_drop_is_refused_not_typed(self):
+        r = self.run_ui("type", "Grüße")
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "non-ASCII")
+        self.assertNoInput("`input text` drops it, and \"typed\" would be a lie")
 
     def test_a_dump_that_never_answers_is_not_an_empty_screen(self):
         r = self.run_ui("dump")                     # no STUB_DUMP: uiautomator keeps failing
@@ -180,6 +229,45 @@ class Secrets(Case):
         for secret in ("hunter2", "1234", "abc.def.ghi"):
             self.assertNotIn(secret, r.stdout)
         self.assertIn("ana", r.stdout)
+
+
+class Store(Case):
+    """R11, through the commands a campaign actually runs: `db` and `file` against the app's data folder."""
+
+    def setUp(self):
+        super().setUp()
+        self.data = os.path.join(self.dir, "appdata")
+        os.makedirs(os.path.join(self.data, "databases"))
+        os.makedirs(os.path.join(self.data, "files"))
+        con = sqlite3.connect(os.path.join(self.data, "databases", "app.db"))
+        con.execute("create table session (id integer, username text, auth_token text)")
+        con.execute("insert into session values (1, 'ana', 'QAtok-123')")
+        con.execute("create table settings (key text, value text)")
+        con.executemany("insert into settings values (?, ?)", [("password", "hunter2"), ("theme", "dark")])
+        con.commit()
+        con.close()
+        with open(os.path.join(self.data, "files", "session.pb"), "wb") as fh:
+            fh.write(b"\x0a\x08QAsecret")                       # a Proto DataStore: valid UTF-8, binary
+        self.write_config(android={"package": PKG, "databases": {"main": "app.db"},
+                                   "files": {"session": "files/session.pb"}})
+
+    def test_db_hides_a_secret_column_and_prints_the_rest(self):
+        r = self.run_ui("db", "main", "select username, auth_token from session", STUB_DATA=self.data)
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertIn("ana | <hidden>", r.stdout)
+        self.assertNotIn("QAtok-123", r.stdout + r.stderr)
+
+    def test_db_hides_the_value_of_a_row_whose_key_is_secret(self):
+        r = self.run_ui("db", "main", "select key, value from settings", STUB_DATA=self.data)
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertNotIn("hunter2", r.stdout + r.stderr)
+        self.assertIn("theme | dark", r.stdout)
+
+    def test_a_binary_store_is_never_printed(self):
+        r = self.run_ui("file", "session", STUB_DATA=self.data)
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "is binary")
+        self.assertNotIn("QAsecret", r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

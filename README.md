@@ -188,7 +188,7 @@ all come from one `qa.config.json`.
 | **Asks your server** | through a small adapter you write: the one project-specific piece, and the only thing this skill cannot hand you |
 | **Breaks things on purpose** | `fake_server.py` answers 500, 401, one route at a time, or too slowly; `net.sh off` cuts the network and **proves** it went down from the app's side, not just Android's |
 | **Proves red before green** | `redcheck.py` runs the test and judges it from the JUnit XML *that run wrote* — RED, GREEN or NOT RUN — and can apply the deliberate break itself, putting the file back byte for byte |
-| **Is under test itself** | `tests/run`: 61 contract tests against a fake device, nothing plugged in. A harness that lies is worse than no harness |
+| **Is under test itself** | `tests/run`: 71 contract tests against a fake device, nothing plugged in. A harness that lies is worse than no harness |
 
 ```bash
 ui.py tap "text=Save"                                      # or text~= desc= id= class= clickable= …
@@ -222,7 +222,7 @@ of which earned its place on a real campaign. The four that do most of the work:
 
 And **the harness is under test too.** When the tool reports a defect its first suspect is itself — a
 false positive costs more than a miss, because it trains you to ignore the tool — and it must never
-print a silent all-clear. `tests/run` is its own suite: 61 contract tests against a fake device, with
+print a silent all-clear. `tests/run` is its own suite: 71 contract tests against a fake device, with
 nothing plugged in.
 
 ## Credentials, and why it never types your password

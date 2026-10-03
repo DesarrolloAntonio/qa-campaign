@@ -100,6 +100,12 @@ class Guards(Case):
         self.assertSaid(r, "not a file")
         self.assertEqual([], self.adb_calls(), "the adb on PATH must not be asked instead")
 
+    def test_an_alias_that_is_not_in_devices_is_refused(self):
+        r = self.run_net("status", "--device", "tablet")
+        self.assertEqual(1, r.returncode)
+        self.assertSaid(r, "unknown device alias")
+        self.assertEqual([], [c for c in self.adb_calls() if c.startswith("shell")])
+
     def test_no_device_at_all_exits_one(self):
         r = self.run_net("status", STUB_STATE="none")
         self.assertEqual(1, r.returncode)
