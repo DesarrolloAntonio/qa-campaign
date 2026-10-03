@@ -300,7 +300,7 @@ the run is already green. So a claim names the fixture, the account, the build, 
 oracles were read in. `QA_Item_17` costs nothing to write and lets someone who wasn't there check the
 chain; "the item" does not.
 
-Four ways the UI oracle says less than it seems, all measured:
+Five ways the UI oracle says less than it seems, all measured:
 
 - **A form that closes on save has told you nothing.** The screen going back is not the write: every
   finding in one process needed the API to be seen.
@@ -524,7 +524,7 @@ licence bit, a feature flag, a role — is not a read-only act: one flipped to o
 which records the app's own clean-up deleted, and it deleted a record that was not the campaign's
 (measured). Grep who reads a flag before changing it, and say in the report that it was changed.
 
-**On the real server**, three more things:
+**On the real server**, five more things:
 
 - **Test accounts, never a personal one.** The human creates them — A, and B and C if R7 needs them
   — and the campaign never creates or deletes an account itself (R2, stop 3).
