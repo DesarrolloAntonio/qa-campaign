@@ -138,6 +138,34 @@ class WhichApp(Case):
                          "a list needs no guessing, so the device is not asked")
 
 
+    def test_input_reaches_any_package_on_the_list(self):
+        # The list exists to "count several variants as one app": the debug variant in front is the app.
+        self.write_config(android={"package": PKG, "packagePrefix": [PKG, PKG + ".debug"]})
+        r = self.run_ui("tap", "text=Delete", "--index", "0", STUB_DUMP=self.with_dump(TWO_ROWS),
+                        STUB_FRONT=PKG + ".debug")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertIn("shell input tap 540 300", self.adb_calls())
+
+    def test_a_crash_of_a_listed_variant_is_the_apps_crash(self):
+        # R8: "0 crashes" over a crash of the variant the config counts as the app is a silent all-clear.
+        self.write_config(android={"package": PKG, "packagePrefix": [PKG, PKG + ".debug"]})
+        crash = ("09-24 10:00:00.000  1234  1234 E AndroidRuntime: FATAL EXCEPTION: main\n"
+                 f"09-24 10:00:00.000  1234  1234 E AndroidRuntime: Process: {PKG}.debug, PID: 1234\n"
+                 "09-24 10:00:00.000  1234  1234 E AndroidRuntime: java.lang.IllegalStateException: boom")
+        r = self.run_ui("crashes", STUB_CRASHES=crash)
+        self.assertEqual(1, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "IllegalStateException")
+
+    def test_a_crash_of_another_app_is_still_not_the_apps(self):
+        # The other direction (R8): the list must not turn every crash on the device into the app's.
+        self.write_config(android={"package": PKG, "packagePrefix": [PKG, PKG + ".debug"]})
+        crash = ("09-24 10:00:00.000  1234  1234 E AndroidRuntime: FATAL EXCEPTION: main\n"
+                 "09-24 10:00:00.000  1234  1234 E AndroidRuntime: Process: com.example.other, PID: 1234")
+        r = self.run_ui("crashes", STUB_CRASHES=crash)
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "0 crashes")
+
+
 class Secrets(Case):
     """R11: the STORE and LOG oracles never print a credential."""
 

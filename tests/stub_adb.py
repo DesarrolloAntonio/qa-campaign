@@ -26,6 +26,7 @@ on the allow-list.
     STUB_WM_SIZE                `wm size` output; empty = unreadable
     STUB_PACKAGES               comma-separated installed packages, for `pm list packages <prefix>`
     STUB_IME                    `dumpsys window InputMethod` output
+    STUB_CRASHES                what `logcat -b crash -d` prints; unset = an empty crash buffer
 """
 import os
 import sys
@@ -66,6 +67,8 @@ if args[0] in ("reverse", "forward", "wait-for-device", "install", "uninstall", 
 if args[0] == "exec-out":
     sys.stdout.buffer.write(b"\x89PNG\r\n\x1a\n" + b"\0" * 2048)
     sys.exit(0)
+if args[0] == "logcat":
+    out(env("STUB_CRASHES", "") if "crash" in args else "")
 if args[0] != "shell":
     out()
 
