@@ -136,7 +136,7 @@ Read as the agent that has to follow it. Line numbers are SKILL.md's.
    Reordering and renumbering is restructuring, so it is listed, not done.
 
 5. **Length.** 1,106 lines, about 14,000 words, and "Read §1 before running anything" is roughly 800
-   of those lines. 49 "(measured)" anecdotes carry the reasons, and several rules have grown by
+   of those lines. About fifty lines with a "(measured)" anecdote carry the reasons, and several rules have grown by
    insertion until the instruction is hard to find: R11 is 120 lines with mechanisms numbered 1, 2, 3,
    3b, 4, 5; R6's "Red for the reason the test names" paragraph (line 362) holds a sentence with two
    parentheses in a row that no longer parses; lines 102, 194, 535 and 606 each have a new topic
@@ -194,7 +194,7 @@ Read as the agent that has to follow it. Line numbers are SKILL.md's.
 
 | Line | Status |
 |---|---|
-| **TOOL · `net.sh reach`** blamed the app when `run-as` resolved no name at all | **Resolved.** `reach` asks a control host from the same context and answers NOT PROVEN (`net.sh` lines 272–282), GOTCHAS documents it, two tests cover both directions |
+| **TOOL · `net.sh reach`** blamed the app when `run-as` resolved no name at all | **Resolved.** `reach` asks a control host from the same context and answers NOT PROVEN (`net.sh`, in `reach`), GOTCHAS documents it, two tests cover both directions |
 | **TOOL · `redcheck.py`** called Mockito's `WantedButNotInvoked` / `NeverWantedButInvoked` a crash | **Resolved for Mockito and MockK**, with a test. **Partly open:** the suggestion was "treat any `AssertionError` subclass as the verdict", and a JUnit report only carries the type's *name*, so a subclass whose name does not say so is still a crash — Espresso's `NoMatchingViewException` on a `check(…)` is the likely next one. The line's puzzle ("a later run reported the same failure as RED") is explained by the code: a crash next to a real failure in the same run is RED with a note; a crash alone is NOT RED |
 
 Friction the campaign met and did not log (visible in its reports, not in the friction file): the
