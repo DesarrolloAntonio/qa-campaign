@@ -8,68 +8,24 @@ harness. No service, no account, MIT.
 
 [![qa-campaign in 30 seconds](docs/promo/qa-campaign-promo.gif)](docs/promo/qa-campaign-promo.mp4)
 
-## What happens when you run it
+## Why it exists
 
-1. You type `/qa-campaign` in your project. It asks first — which build, which devices, which test
-   accounts, whether it may commit — and touches nothing until you have answered.
-2. It installs your app on a device or emulator and **uses it**: taps through every screen, fills the
-   forms, kills the process, cuts the network, rotates, signs in as a second account.
-3. It does not believe the screen. It reads your app's own database, and it asks your server directly.
-   A "Saved" over a request the server refused is a bug it catches, not a pass.
-4. It fixes what it finds, and writes a test for each fix **that it watched fail first**. A test that
-   passes with and without the fix proves nothing, so it does not count.
-5. You get a branch: a commit and a report per area, and a short list of the decisions only you can
-   make.
-
-Expect **hours**: a full pass on a mid-sized app is a working day. Nothing is pushed — you review a
-branch at the end.
-
-## How it drives your app
-
-Four scripts and a contract. Nothing project-specific lives in them — package, databases and devices
-all come from one `qa.config.json`.
-
-| | |
-|---|---|
-| **Reads the screen as text, not pixels** | the `uiautomator` accessibility tree, so a selector is something you can assert on. It refuses when one matches two different controls instead of tapping the first |
-| **Reads your app's own store** | `run-as` + SQLite, with credential-looking values hidden — and its files, its logcat and its crashes |
-| **Asks your server** | through a small adapter you write: the one project-specific piece, and the only thing this skill cannot hand you |
-| **Breaks things on purpose** | `fake_server.py` answers 500, 401, one route at a time, or too slowly; `net.sh off` cuts the network and **proves** it went down from the app's side, not just Android's |
-| **Proves red before green** | `redcheck.py` runs the test and judges it from the JUnit XML *that run wrote* — RED, GREEN or NOT RUN — and can apply the deliberate break itself, putting the file back byte for byte |
-| **Is under test itself** | `tests/run`: 51 contract tests against a fake device, nothing plugged in. A harness that lies is worse than no harness |
-
-```bash
-ui.py tap "text=Save"                                      # or text~= desc= id= class= clickable= …
-ui.py assert "text=Delete" --absent                        # what a script gates on
-ui.py db main "select id, title, syncStatus from items"    # the app's own store
-ui.py kill                                                 # process death that keeps saved state
-ui.py a11y                                                 # small targets, overlaps, unnamed icons
-net.sh off · net.sh reach                                  # cut the network · can the APP reach the server
-redcheck.py --expect red --test SaveTest -- ./gradlew :app:test --rerun
-```
-
-The method is the other half, and the larger one: [`SKILL.md`](SKILL.md), fourteen rules, each of which
-earned its place by something going wrong on a real campaign.
-
-## What you need
-
-- **Claude Code**, or any agent that loads skills. This is a skill, not a service: nothing to sign up
-  for, nothing runs on anyone else's machine.
-- **An Android device or emulator**, with `adb` and Python 3. The harness is Android-only today. The
-  method is not — but web, iOS or desktop each need a harness written to a documented contract.
-- **A test server and test accounts** where data can be created and deleted. Never a production account.
-- **A branch of its own.** It changes your source: fixes, tests, and deliberate breaks that it undoes.
+You ship an app whose tests are all green, and it still crashes the moment it opens, or quietly loses
+someone's data. A test suite only checks what its author thought of. A QA engineer does something
+different: uses the app like a person would, on a real device, and does not take the screen's word for
+it. **qa-campaign does that, for you, and then fixes what it finds.**
 
 ## What it has found
 
 Every one of these was in code that passed its project's own test suite, in an app that had shipped:
 
-- The **signed release crashed on launch**, every screen, every time. The debug build was fine: R8 had
-  renamed a class that the SQLite layer looks up by name at runtime.
-- **Saving one field silently reverted the others** — the write sent the whole local row, so anything
-  changed elsewhere came back undone. The screen said "saved", and the server agreed.
-- **Editing a bookmark deleted the tags** someone had added from the web UI. Found on a commit an
-  earlier pass had already approved, with nothing written in between.
+- **The release app crashed the moment it opened**, on every screen, every time. The debug build was
+  fine: a code-shrinking step had renamed a class that the app's database looks up by name.
+- **Saving one field silently undid the others.** The app sent its whole local copy of the record, so
+  anything changed elsewhere in the meantime came back undone. The screen said "saved", and the server
+  agreed.
+- **Editing a bookmark deleted the tags** someone had added from the web. Found on a commit an earlier
+  pass had already approved, with nothing written in between.
 
 [`examples/shiori/`](examples/shiori/) is one whole run, published unedited: the plan, the findings, the
 screens it looked at, the questions it sent back — and the two bugs it found in its own tools.
@@ -89,7 +45,8 @@ screens it looked at, the questions it sent back — and the two bugs it found i
 
 </details>
 
-### Four families explain almost every severe one
+<details>
+<summary><b>Four patterns explain almost every serious one</b></summary>
 
 If your app syncs, it probably has at least one of these right now:
 
@@ -102,6 +59,33 @@ If your app syncs, it probably has at least one of these right now:
    the pending edit is dropped — or overwritten by the server's copy.
 4. **Treating what was created offline as if it already existed** on the server: adopting a twin by
    URL, sending a temporary id, a `POST` that cannot carry every field.
+
+</details>
+
+## What happens when you run it
+
+1. **You type `/qa-campaign` in your project.** It asks first — which build, which devices, which test
+   accounts, whether it may commit — and touches nothing until you have answered.
+2. **It uses your app** on a device or emulator: taps through every screen, fills the forms, closes the
+   app by force, cuts the network, rotates the screen, signs in as a second user.
+3. **It does not believe the screen.** It also reads your app's own database and asks your server
+   directly. A "Saved" over a request the server refused is a bug it catches, not a pass.
+4. **It fixes what it finds**, and writes a test for each fix **that it watched fail first**. A test
+   that passes with and without the fix proves nothing, so it does not count.
+5. **You get a branch to review:** a commit and a report per area, and a short list of the decisions
+   only you can make.
+
+Expect **hours**: a full pass on a mid-sized app is a working day. Nothing is pushed — you review a
+branch at the end.
+
+## What you need
+
+- **Claude Code**, or any agent that loads skills. This is a skill, not a service: nothing to sign up
+  for, nothing runs on anyone else's machine.
+- **An Android device or emulator**, with `adb` and Python 3. The harness is Android-only today. The
+  method is not — but web, iOS or desktop each need a harness written to a documented contract.
+- **A test server and test accounts** where data can be created and deleted. Never a production account.
+- **A branch of its own.** It changes your source: fixes, tests, and deliberate breaks that it undoes.
 
 ## Before you run it
 
@@ -185,6 +169,39 @@ queue; one report per process with its inventory, findings, the screenshots that
 one branch, commits per gate, each fix carrying the test that was seen red.
 
 [`examples/shiori/`](examples/shiori/) is exactly that, published unedited.
+
+---
+
+# Under the hood
+
+Everything above is what you need to use it. What follows is how it works, for when you want to know.
+
+## How it drives your app
+
+Four scripts and a contract. Nothing project-specific lives in them — package, databases and devices
+all come from one `qa.config.json`.
+
+| | |
+|---|---|
+| **Reads the screen as text, not pixels** | the `uiautomator` accessibility tree, so a selector is something you can assert on. It refuses when one matches two different controls instead of tapping the first |
+| **Reads your app's own store** | `run-as` + SQLite, with credential-looking values hidden — and its files, its logcat and its crashes |
+| **Asks your server** | through a small adapter you write: the one project-specific piece, and the only thing this skill cannot hand you |
+| **Breaks things on purpose** | `fake_server.py` answers 500, 401, one route at a time, or too slowly; `net.sh off` cuts the network and **proves** it went down from the app's side, not just Android's |
+| **Proves red before green** | `redcheck.py` runs the test and judges it from the JUnit XML *that run wrote* — RED, GREEN or NOT RUN — and can apply the deliberate break itself, putting the file back byte for byte |
+| **Is under test itself** | `tests/run`: 51 contract tests against a fake device, nothing plugged in. A harness that lies is worse than no harness |
+
+```bash
+ui.py tap "text=Save"                                      # or text~= desc= id= class= clickable= …
+ui.py assert "text=Delete" --absent                        # what a script gates on
+ui.py db main "select id, title, syncStatus from items"    # the app's own store
+ui.py kill                                                 # process death that keeps saved state
+ui.py a11y                                                 # small targets, overlaps, unnamed icons
+net.sh off · net.sh reach                                  # cut the network · can the APP reach the server
+redcheck.py --expect red --test SaveTest -- ./gradlew :app:test --rerun
+```
+
+The method is the other half, and the larger one: [`SKILL.md`](SKILL.md), fourteen rules, each of which
+earned its place by something going wrong on a real campaign.
 
 ## Why it does not just believe the screen
 
