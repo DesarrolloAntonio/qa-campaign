@@ -82,7 +82,7 @@ branch at the end.
 
 - **Claude Code**, or any agent that loads skills. This is a skill, not a service: nothing to sign up
   for, nothing runs on anyone else's machine.
-- **An Android device or emulator**, with `adb` and Python 3. The harness is Android-only today. The
+- **An Android device or emulator**, with `adb` and Python 3.9 or newer. The harness is Android-only today. The
   method is not — but web, iOS or desktop each need a harness written to a documented contract.
 - **A test server and test accounts** where data can be created and deleted. Never a production account.
 - **A branch of its own.** It changes your source: fixes, tests, and deliberate breaks that it undoes.
@@ -108,8 +108,13 @@ It is a tool that acts. **You run it at your own risk** — see the licence: no 
 ## Try it
 
 ```bash
-npx skills add DesarrolloAntonio/qa-campaign                 # installs and links it for you
-git clone https://github.com/DesarrolloAntonio/qa-campaign ~/.claude/skills/qa-campaign   # or by hand
+npx skills add DesarrolloAntonio/qa-campaign
+```
+
+Or by hand — one or the other, not both:
+
+```bash
+git clone https://github.com/DesarrolloAntonio/qa-campaign ~/.claude/skills/qa-campaign
 ```
 
 In the project you want to test:
@@ -129,7 +134,7 @@ the **credentials template** for you to fill in, if you don't have one yet.
 
 ### What it asks before it touches anything
 
-The interview is the first gate. It asks, and waits:
+The interview is the first gate. It looks at the repo first, asks what only you can answer, and waits:
 
 ![The skill asking what a new campaign should cover, with three options and the cost of each](docs/img/interview-scope.png)
 
@@ -138,7 +143,7 @@ The interview is the first gate. It asks, and waits:
 - **which accounts and which server** — a test server, never production. It asks what must not be
   touched, and treats everything already there as real data;
 - **how deep offline goes** — none, short or full — decided from the clues in your code, not by habit;
-- **fix mode** — fix the severe ones with a test seen red, or report only;
+- **fix mode** — fix the severe ones with a test seen red, fix everything, or report only;
 - **where the work goes** — which branch, whether it may commit, which folder the reports live in;
 - **what an earlier campaign left**, if there is one, so it doesn't re-find what you already fixed.
 
@@ -163,7 +168,7 @@ Three things happen along the way that are worth knowing about:
 - **It reports its own mistakes.** Every campaign keeps a friction log of where the skill or the
   harness guessed, lied, or was missing something — and that is what the next version is made of.
 
-When it closes you have, in `docs/qa/<date>/`: `CAMPAIGN.md` with the plan, the gates, the log and the
+When it closes you have, in the docs folder you agreed at setup (`docs/qa/<date>/`, say): `CAMPAIGN.md` with the plan, the gates, the log and the
 queue; one report per process with its inventory, findings, the screenshots that were looked at and
 **what it did not cover**; the screenshots themselves; and `SKILL-FRICTION.md`. In the repository:
 one branch, commits per gate, each fix carrying the test that was seen red.
@@ -196,7 +201,8 @@ ui.py assert "text=Delete" --absent                        # what a script gates
 ui.py db main "select id, title, syncStatus from items"    # the app's own store
 ui.py kill                                                 # process death that keeps saved state
 ui.py a11y                                                 # small targets, overlaps, unnamed icons
-net.sh off · net.sh reach                                  # cut the network · can the APP reach the server
+net.sh off                                                 # cut the network, and prove it from the app's side
+net.sh reach                                               # can the APP reach the server
 redcheck.py --expect red --test SaveTest -- ./gradlew :app:test --rerun
 ```
 
@@ -232,7 +238,6 @@ the skill writes the template with the keys it needs and stops until you have:
 
 ```json
 {
-  "server": { "url": "https://qa.example.com" },
   "accounts": {
     "A": { "username": "<qa-user>", "password": "<app-password>" },
     "B": { "username": "<qa-user-2>", "password": "<app-password>" }

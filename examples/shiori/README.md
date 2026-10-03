@@ -22,9 +22,10 @@ mix rule did not exist in the earlier run.
 
 - [`CAMPAIGN.md`](CAMPAIGN.md) — the plan: scope, devices, accounts, fixtures, oracles, the gates, the
   human queue, the log, and the close-out. This is the file a campaign writes first and finishes last.
-- [`00-setup.md`](00-setup.md) — the setup gate: harness, session injection, the API oracle, and the
-  four absence sweeps with their numbers. The P1 that put the whole library into the system log is
-  here, with the release dex counted before and after.
+- [`00-setup.md`](00-setup.md) — the setup gate of a second campaign, so only what changed: whether
+  the app reaches the server, the absence sweeps with their numbers, and whether the release can
+  ship. The P1 that put the whole library into the system log is here, with the release dex counted
+  before and after.
 - [`02-mix.md`](02-mix.md) — the process that found the P0, by making a change offline and another one
   online against the same record before the queue drained.
 - [`01-eye.md`](01-eye.md) — the screens that were looked at, one row each, in words.
