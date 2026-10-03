@@ -6,6 +6,8 @@
 real server — and fixes what it finds.** It is a skill for Claude Code: instructions plus an Android
 harness. No service, no account, MIT.
 
+[![qa-campaign in 30 seconds — click to play](docs/promo/poster.png)](docs/promo/qa-campaign-promo.mp4)
+
 ## What happens when you run it
 
 1. You type `/qa-campaign` in your project. It asks first — which build, which devices, which test
