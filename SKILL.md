@@ -188,7 +188,7 @@ product **lacks**. That is R4.
 ### R4 — The absence sweeps (what the product does NOT have)
 
 R3 is **structurally blind to missing features**: a feature that doesn't exist leaves nothing to
-enumerate. So run four sweeps — **once, for the whole product, at setup** (§2.1), filing each finding
+enumerate. So run five sweeps — **once, for the whole product, at setup** (§2.1), filing each finding
 under its module. *The whole product* is the app under test plus the shared modules it depends on —
 in a repository of several standalone apps, not the whole repository (a sweep run repo-wide returned
 391 hits, half of them another app's; audit). Before writing a module's catalogue, re-read that module's findings; re-run the
@@ -202,6 +202,7 @@ rule:
 | **S2** | Dead control | Empty or TODO handlers, *including* empty lambdas passed down as arguments: Compose `grep -rnE 'onClick *= *\{ *\}|\w+ *= *\{ *\}|/\* *TODO' --include='*.kt'`; web `grep -rnE '=\{\(\) *=> *\{\}\}|href="#"' --include='*.tsx'`; SwiftUI `grep -rn 'action: {}' --include='*.swift'`. Then routes: every `navigate(x)` has a matching destination. | previews and showcase modules — **filter them mechanically**, they are most of the hits: a candidate inside a `@Preview` function is not a dead control (walk back from the enclosing `fun` through its annotation lines); read-only chips, disabled placeholders; an empty **default value** in a function's signature (`onClick: () -> Unit = {}`) — for those, follow the callers: a candidate only if a real screen leaves it empty | "Privacy Policy" and "Help" buttons that do nothing (a store blocker) |
 | **S3** | Expected absence | **Enumerate REF (R5), not your imagination**: walk the reference implementation's navigation, settings and menus and write down every feature name; grep your code for each term; zero files = absent. | features REF has that are out of scope *by written decision* — **while the code still agrees**. A written decision the code has since contradicted ("out of scope" in the README, built by a later commit) is not a discard: it goes to the queue as "which decision stands" | No quota, no licences, no changelog, no clear-cache |
 | **S4** | Stuck when something fails | Controls that work when everything goes right and never recover when something goes wrong. Find where work starts — a flag set to true, a `Loading` state, a button disabled — and check each is undone on the **failure** path too, not only on success. Then error handlers that are empty or only log, searched **across lines**. Commands below the table. Drive each candidate with the network cut or the server stopped. | undone in a `finally`, or by one state that covers both outcomes; clean-up, close and stop handlers with no UI behind them | A spinner nothing ever clears after the server says no; a save button that stays disabled |
+| **S5** | Placeholder that ships | User-visible strings that were never meant for users: `grep -rniE 'lorem|ipsum|\bTODO\b|FIXME|test123|asdf' ` over string resources and UI literals; then, on the device, `ui.py dump` of each screen checked for the same words and for **raw resource keys** (`common.submit`, `@string/…`). | test and preview sources; debug-only screens absent from the build users get (§2.3) | A "TODO" label in a dialog, an untranslated key as a button's text |
 
 The S4 searches, Kotlin first. Each misses something if you narrow it: `ing *= *true` alone missed
 `_isRefreshing.value = true` and sealed `Loading` states, and a one-line `catch {}` grep found **0**
@@ -704,6 +705,13 @@ A campaign that never records an operator error is not being honest, and its oth
 less because of it. Equally: when a defect cannot be reproduced from the test harness, **rename the
 test to say what it actually covers** instead of claiming coverage you don't have.
 
+**The same goes for what you tell the human.** A message that closes a process or the campaign lists,
+in that same message, what was driven and what was not. "Everything works" or "only X is left" is
+allowed only when the not-driven list is empty; otherwise name each gap and why it was left. A gap the
+human finds by asking is a finding against you, and the run report records it as an R12 mistake
+(measured: a release gate summarised as "everything works" after one write of each kind, with share,
+PDF, attachments, trails, camera and invitations never driven on that build).
+
 **And when the skill is what went wrong, log it too.** A rule that made you guess, an assumption that
 isn't true in this project, a harness command that lied or was missing, an instruction that makes no
 sense here: one line in `SKILL-FRICTION.md`, in the campaign's docs folder, **when it happens** — not
@@ -786,8 +794,12 @@ what the maintenance branch had already published, and the in-place install died
 unit test pinning "above the last shipped" keeps it that way. While there, look on disk for an earlier
 artefact to upgrade from before queueing the human for one.
 
-Two more things that process needs, both found the hard way:
+Three more things that process needs, all found the hard way:
 
+- **Scope it from what the build type changes, not from a sample.** List every path that R8, signing
+  or build-type values can reach: serialization, file providers and intents, reflection, endpoints
+  only some features call. Drive each one, or put it in the report as not driven. One write of each
+  kind proves the serializers and nothing more.
 - **Signing.** An update only installs over an APK signed with the same key, and the published one is
   usually signed with a key that lives only in CI. Build the previous release **from its tag** with
   the same local key as the new build — its size matching the published APK is a cheap check that it
@@ -943,7 +955,7 @@ tools take four, and a second round gets skipped:
    setup closes: the computer reaching it says nothing about the device. Measured: setup closed with
    "the harness drives the app" while the app could not resolve the server's name, and it surfaced a
    gate later as "deleted notes that don't disappear".
-9. Run the four absence sweeps (R4) once, for the whole product, and file each finding under its
+9. Run the five absence sweeps (R4) once, for the whole product, and file each finding under its
    module — before writing any catalogue.
 10. **Decide how deep offline goes** — none, short or full (R1) — from the clues in the code, and
     write it at the top of `CAMPAIGN.md` with the clue that decided it. It sets whether the
@@ -1030,6 +1042,10 @@ The "what" is written so that someone who has never seen the code understands th
 > screen was left showing the rejected text as if it were the note.
 
 If you can't write that sentence, you haven't understood the defect yet.
+
+**A P0 or P1 is attacked before it is reported.** Hand a subagent only the evidence — screenshot,
+dump, store and server output, no reasoning — and ask it to refute the finding. What it refutes goes
+back to you, not into the report; what it cannot settle goes to the queue (R2).
 
 ---
 
