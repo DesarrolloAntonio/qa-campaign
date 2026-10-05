@@ -90,6 +90,22 @@ class Guards(Case):
         self.assertEqual(1, r.returncode)
         self.assertSaid(r, "the emulator refused")
 
+    def test_an_adb_that_is_not_a_file_is_refused_not_replaced(self):
+        # ui.py refuses a mistyped $ADB; net.sh fell through to whatever adb was on PATH — a different
+        # adb than the one the project named, and nothing said so.
+        import os
+        r = self.run_net("status", ADB=os.path.join(self.dir, "no-such-adb"),
+                         PATH=self.dir + os.pathsep + os.environ["PATH"])
+        self.assertEqual(1, r.returncode)
+        self.assertSaid(r, "not a file")
+        self.assertEqual([], self.adb_calls(), "the adb on PATH must not be asked instead")
+
+    def test_an_alias_that_is_not_in_devices_is_refused(self):
+        r = self.run_net("status", "--device", "tablet")
+        self.assertEqual(1, r.returncode)
+        self.assertSaid(r, "unknown device alias")
+        self.assertEqual([], [c for c in self.adb_calls() if c.startswith("shell")])
+
     def test_no_device_at_all_exits_one(self):
         r = self.run_net("status", STUB_STATE="none")
         self.assertEqual(1, r.returncode)

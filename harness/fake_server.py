@@ -57,6 +57,11 @@ def main():
     p.add_argument("--header", action="append", default=[], help='"Name: value", repeatable — e.g. a Set-Cookie')
     p.add_argument("--routes", help='JSON file: {"METHOD /path": {"status": …, "body": …, "type": …, "delay": …, "headers": {…}}}')
     a = p.parse_args()
+    for h in a.header:
+        # It used to start and then fail inside every request: the app saw a dropped connection,
+        # which reads as a network failure, not as the status the test asked for.
+        if ":" not in h:
+            raise SystemExit(f'--header {h!r}: expected "Name: value"')
     routes = json.load(open(a.routes)) if a.routes else {}
     for key, route in routes.items():
         # A route whose body is written as JSON (an object, a number) used to crash the handler thread
@@ -77,8 +82,11 @@ def main():
             kind, delay = route.get("type", a.type), route.get("delay", a.delay)
             # The body goes into the run report, and a sign-in or a token refresh posts the credential
             # in it (audit). Same hiding as everywhere else (R11).
-            shown_body = hide_secrets_in_text(sent[:300].decode(errors="replace")) if sent else ""
-            print(f"{time.strftime('%H:%M:%S')} {self.command} {self.path} → {status}"
+            # Hidden first, cut second: cut first, an object under a secret key never closes and what
+            # was inside it printed. The query string too — `?api_key=…` is a credential like any other.
+            shown_body = hide_secrets_in_text(sent.decode(errors="replace"))[:300] if sent else ""
+            shown_path = hide_secrets_in_text(self.path, inline=True)
+            print(f"{time.strftime('%H:%M:%S')} {self.command} {shown_path} → {status}"
                   + (f"  body: {shown_body}" if sent else ""), flush=True)
             if delay:
                 time.sleep(delay)

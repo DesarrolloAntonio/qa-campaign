@@ -92,6 +92,40 @@ class FakeServer(Case):
         self.assertNotIn("hunter2", printed, "the request log is evidence for the report: no credentials in it")
         self.assertIn("ana", printed)
 
+    def test_a_credential_in_the_query_string_is_not_printed_back(self):
+        conn = self.server("--status", "200")
+        conn.request("GET", "/api/items?api_key=QAsecretvalue123&page=2")
+        conn.getresponse().read()
+        printed = self.printed()
+        self.assertIn("GET /api/items", printed)
+        self.assertNotIn("QAsecretvalue123", printed, "a key in the URL is a credential like one in the body")
+        self.assertIn("page=2", printed)
+
+    def test_a_secret_is_hidden_before_the_body_is_cut_not_after(self):
+        # Cut first, the object under a secret key never closes, and what was inside it printed.
+        body = json.dumps({"pins": {"pad": "x", "user": "4321", "more": "y" * 400}})
+        conn = self.server("--status", "200")
+        conn.request("POST", "/api/pins", body=body, headers={"Content-Type": "application/json"})
+        conn.getresponse().read()
+        printed = self.printed()
+        self.assertIn("POST /api/pins", printed)
+        self.assertNotIn("4321", printed)
+
+    def test_a_header_with_no_colon_is_refused_at_start(self):
+        # It used to start, and then drop every connection: the app saw a network failure, not the
+        # status the test asked for.
+        proc = subprocess.Popen(["python3", "-u", FAKE_SERVER, "--port", str(free_port()),
+                                 "--header", "X-No-Colon"],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            out, _ = proc.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            self.fail("the server started with a header it cannot send")
+        self.assertNotEqual(0, proc.returncode)
+        self.assertIn("X-No-Colon", out)
+
 
 if __name__ == "__main__":
     unittest.main()

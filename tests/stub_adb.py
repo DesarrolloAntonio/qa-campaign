@@ -26,6 +26,8 @@ on the allow-list.
     STUB_WM_SIZE                `wm size` output; empty = unreadable
     STUB_PACKAGES               comma-separated installed packages, for `pm list packages <prefix>`
     STUB_IME                    `dumpsys window InputMethod` output
+    STUB_DATA                   a folder served as the app's data folder to `exec-out run-as <pkg> cat <path>`
+    STUB_CRASHES                what `logcat -b crash -d` prints; unset = an empty crash buffer
 """
 import os
 import sys
@@ -63,9 +65,18 @@ if args[0] == "emu":
     out(answer) if answer else out()
 if args[0] in ("reverse", "forward", "wait-for-device", "install", "uninstall", "push", "pull"):
     out()
+if args[0] == "exec-out" and env("STUB_DATA") and args[1:2] == ["run-as"] and args[3:4] == ["cat"]:
+    path = os.path.join(env("STUB_DATA"), args[4])
+    if os.path.isfile(path):
+        with open(path, "rb") as fh:
+            sys.stdout.buffer.write(fh.read())
+        sys.exit(0)
+    out(f"cat: {args[4]}: No such file or directory", 1)
 if args[0] == "exec-out":
     sys.stdout.buffer.write(b"\x89PNG\r\n\x1a\n" + b"\0" * 2048)
     sys.exit(0)
+if args[0] == "logcat":
+    out(env("STUB_CRASHES", "") if "crash" in args else "")
 if args[0] != "shell":
     out()
 

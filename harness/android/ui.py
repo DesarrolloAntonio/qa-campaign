@@ -36,7 +36,8 @@ Configuration lives in `qa.config.json` (searched upwards from the working direc
 `QA_CONFIG`). Keys this script reads: `android.package`, `android.packagePrefix` (a LIST of exact
 package names, or a prefix — which is refused when it matches more than one installed app),
 `android.databases` (alias → file in databases/, or a path in the data folder), `android.files`
-(alias → path in the data folder), `devices` (alias → adb serial). Nothing project-specific here.
+(alias → path in the data folder), `android.secretKeys`, `devices` (alias → adb serial or `avd:<name>`),
+`managedDevices` and `campaign`. Nothing project-specific here.
 
 Device: `--device <alias>` (from `devices` in the config: an adb serial, or `avd:<name>` for an
 emulator, whose serial is looked up on every command), `--serial`, or `ANDROID_SERIAL`.
@@ -494,6 +495,15 @@ def app_in_front(pkg):
     return m.group(1)
 
 
+def is_ours(front, pkg):
+    """Is the package in front the app under test? `pkg` (it may come from --pkg), or whatever
+    `packagePrefix` counts as the app. The guards compared with `pkg` alone and ignored the LIST form,
+    so the variant the config named as the same app was refused as another one."""
+    if APP_PKG_PREFIX:
+        return front.startswith(APP_PKG_PREFIX)
+    return front == pkg or front in APP_PKGS
+
+
 def require_app_in_front(pkg):
     """
     Input only goes to the app under test. When two campaigns share an AVD, the other campaign's app
@@ -501,13 +511,12 @@ def require_app_in_front(pkg):
     next input landed on the OTHER app — twice (measured). `--any-app` for flows that leave on purpose
     (a share sheet, the browser, a permission dialog).
     """
-    if not pkg and not APP_PKG_PREFIX:
+    if not pkg and not APP_PKG_PREFIX and not APP_PKGS:
         return
     front = app_in_front(pkg)
-    ours = front.startswith(APP_PKG_PREFIX) if APP_PKG_PREFIX else front == pkg
-    if not ours:
+    if not is_ours(front, pkg):
         raise SystemExit(
-            f"refusing input: {front} is in front, not {APP_PKG_PREFIX or pkg}. Something left the app under test — "
+            f"refusing input: {front} is in front, not {APP_PKG_PREFIX or ' / '.join(APP_PKGS) or pkg}. Something left the app under test — "
             "`ui.py launch` to bring it back, or pass --any-app if leaving it was the point."
         )
 
@@ -1530,7 +1539,9 @@ def mentions_app(line, pkg):
     """The package as a whole name: `com.x.app` must not match a line about `com.x.app.debug`."""
     if APP_PKG_PREFIX:
         return re.search(rf"(?<![\w.]){re.escape(APP_PKG_PREFIX)}", line) is not None
-    return re.search(rf"(?<![\w.]){re.escape(pkg)}(?![\w.])", line) is not None
+    # Every name `packagePrefix` lists is the app: with the list form only `pkg` was looked for, and a
+    # crash of the listed debug variant came out as "0 crashes".
+    return any(re.search(rf"(?<![\w.]){re.escape(p)}(?![\w.])", line) for p in {pkg, *APP_PKGS} if p)
 
 
 def installed(pkg, apk=None):
@@ -1940,7 +1951,7 @@ def main():
         if a.pkg and not a.any_app:
             time.sleep(0.8)
             front = app_in_front(a.pkg)
-            if not (front.startswith(APP_PKG_PREFIX) if APP_PKG_PREFIX else front == a.pkg):
+            if not is_ours(front, a.pkg):
                 raise SystemExit(
                     f"BACK left the app: {front} is in front now. Nothing else was sent — `ui.py launch` to return."
                 )

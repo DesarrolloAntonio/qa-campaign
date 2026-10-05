@@ -31,7 +31,7 @@ router, not the UI layer. Each is a row here and gets driven (`<harness> open <u
 ## System permissions
 
 Every dangerous permission the manifest declares — the ones the OS asks about. One row each, driven
-like any other control (SKILL.md R4).
+like any other control (SKILL.md R5).
 
 | Permission | Screen that asks | Denied → | "Don't ask again" → | Revoked, then relaunched → |
 |---|---|---|---|---|

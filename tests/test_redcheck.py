@@ -1,6 +1,8 @@
 """redcheck.py's contract: a colour only from a report THIS run wrote, and only for the test you named."""
+import datetime
 import os
 import shlex
+import time
 import unittest
 
 from harness import Case
@@ -200,6 +202,57 @@ class RedCheck(Case):
                              self.runner({"build/test-results/test/TEST-a.xml": junit(FAIL)}, sleep=5, code=1))
         self.assertEqual(2, r.returncode)
         self.assertSaid(r, "no end after")
+
+    def test_a_report_stamped_in_utc_with_no_zone_is_still_this_runs(self):
+        # Gradle up to 8.x stamps its reports in GMT with no zone marker (Ant's DateUtils). Read as
+        # local time east of Greenwich, a report written seconds ago looked hours old, and a real red
+        # came back NOT RUN.
+        now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        r = self.run_redcheck("--expect", "red", "--test", "FooTest", "--",
+                             self.runner({"build/test-results/test/TEST-a.xml":
+                                          junit(FAIL, timestamp=now_utc)}, code=1),
+                             TZ="Asia/Tokyo")
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "RED: 1 of 1 failed")
+
+    def test_one_file_broken_twice_under_two_spellings_is_undone(self):
+        # `Repo.kt` and `./Repo.kt` are one file. Kept as two, the second "original" was the already
+        # broken text, and the restore wrote it back and called it byte for byte.
+        source = os.path.join(self.dir, "Repo.kt")
+        original = "class Repo {\n    fun save() = dao.insert(item)\n    fun drop() = dao.delete(item)\n}\n"
+        with open(source, "w") as fh:
+            fh.write(original)
+        r = self.run_redcheck("--expect", "green", "--test", "FooTest",
+                             "--break", "Repo.kt", "dao.insert(item)", "Unit",
+                             "--break", "./Repo.kt", "dao.delete(item)", "Unit",
+                             "--", self.runner({"build/test-results/test/TEST-a.xml": junit(PASS)}))
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        with open(source) as fh:
+            self.assertEqual(original, fh.read())
+
+    def test_a_timeout_stops_what_the_command_started_too(self):
+        # Killing only the command left its children running — a test still spinning, and still able
+        # to write a report after the break was undone.
+        pidfile = os.path.join(self.dir, "child.pid")
+        script = os.path.join(self.dir, "spawn.sh")
+        with open(script, "w") as fh:
+            fh.write(f"#!/bin/bash\nsleep 60 &\necho $! > {shlex.quote(pidfile)}\nwait\n")
+        os.chmod(script, 0o755)
+        r = self.run_redcheck("--expect", "red", "--test", "FooTest", "--timeout", "1", "--", script)
+        with open(pidfile) as fh:
+            child = int(fh.read())
+        alive = True
+        for _ in range(20):
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                alive = False
+                break
+            time.sleep(0.1)
+        if alive:
+            os.kill(child, 9)
+        self.assertEqual(2, r.returncode)
+        self.assertFalse(alive, "the command's own child was still running after the timeout")
 
 
 if __name__ == "__main__":

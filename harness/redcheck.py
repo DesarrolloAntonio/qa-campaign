@@ -81,6 +81,9 @@ def apply_breaks(breaks):
                   "have been left in place; compare them before trusting this run.", file=sys.stderr)
     try:
         for path, old, new in breaks or []:
+            # One file, one original: `Repo.kt` and `./Repo.kt` kept as two made the second "original"
+            # the already-broken text, and the restore wrote that back.
+            path = os.path.realpath(path)
             if old == new:
                 refuse(f"--break {path}: OLD and NEW are the same — that breaks nothing")
             if re.sub(r"\s+", "", old) == re.sub(r"\s+", "", new):
@@ -208,6 +211,12 @@ def suite_time(root):
         when = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if when.tzinfo is None:
+        # No zone marker says nothing about the zone: Gradle up to 8.x (Ant's DateUtils) writes GMT,
+        # other runners write local time. Read as local only, a report written seconds ago looked
+        # hours old east of Greenwich and a real red came back NOT RUN. Take the later reading: a
+        # report is stale only when it is stale either way.
+        return max(when.timestamp(), when.replace(tzinfo=datetime.timezone.utc).timestamp())
     return when.timestamp()
 
 
@@ -269,8 +278,8 @@ def reports_written_since(roots, before, name_filter, started):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--expect", choices=["red", "green"], required=True)
-    p.add_argument("--test", help="count only test cases whose class.name contains this")
-    p.add_argument("--reports", action="append", help="folder with JUnit XML; default: every test-results folder below .")
+    p.add_argument("--test", help="the one test to judge: its class, the class's last segment, or Class.method — an identity, not a substring")
+    p.add_argument("--reports", action="append", help="folder with JUnit XML, repeatable; default: every test-results and outputs/androidTest-results folder below .")
     p.add_argument("--timeout", type=float, default=900, help="seconds; a test that never ends is not red (R6)")
     p.add_argument("--break", dest="breaks", nargs=3, action="append", metavar=("FILE", "OLD", "NEW"),
                    help="make this break for the run and undo it after, checked byte for byte; OLD must appear once")
@@ -290,18 +299,36 @@ def main():
         restore(originals)
 
 
+def kill_tree(proc):
+    """The command and everything it started (it runs in its own session)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        proc.kill()
+
+
 def judge(a, cmd):
     roots = a.reports or default_roots()
     before = snapshot(roots)
     started = time.time()
+    # Its own session, so the whole tree can be stopped: killing only the command left its children
+    # running — a test still spinning, able to write a report after the break was undone.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            errors="replace", start_new_session=True)
     try:
-        run = subprocess.run(cmd, capture_output=True, text=True, timeout=a.timeout)
-        output, code = run.stdout + run.stderr, run.returncode
-    except subprocess.TimeoutExpired as e:
-        raw = e.stdout or b""
-        tail = (raw if isinstance(raw, str) else raw.decode(errors="replace"))[-300:].strip()
+        out, err = proc.communicate(timeout=a.timeout)
+        output, code = out + err, proc.returncode
+    except subprocess.TimeoutExpired:
+        kill_tree(proc)
+        try:
+            tail = (proc.communicate(timeout=5)[0] or "")[-300:].strip()
+        except subprocess.TimeoutExpired:
+            tail = ""
         print(f"NOT RUN: no end after {a.timeout:.0f} s — a hang is a finding, not a red (R6). Last output: {tail or '(none)'}")
         sys.exit(2)
+    except BaseException:                  # Ctrl-C, SIGTERM: the break is undone next, so stop the run first
+        kill_tree(proc)
+        raise
     if not a.reports:
         roots = default_roots()
 
