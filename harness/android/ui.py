@@ -288,6 +288,7 @@ class Node:
         self.checkable = a.get("checkable") == "true"
         self.selected = a.get("selected") == "true"
         self.focused = a.get("focused") == "true"
+        self.password = a.get("password") == "true"
         m = BOUNDS_RE.match(a.get("bounds", "[0,0][0,0]"))
         if not m:
             # Refuse rather than assume [0,0][0,0]: a 0×0 node reads as an off-screen element or a
@@ -334,7 +335,15 @@ class Node:
                     yield from labels(x.children)
             own = next(labels(self.children), "")
             beside = own or next((x.label() for x in (self.parent.children if self.parent else []) if x is not self and x.label()), "")
-            parts.append(f"{'ON' if self.checked else 'off'}" + (f' ("{beside[:40]}")' if beside and not (self.text or self.desc) else ""))
+            # A label from BESIDE it is not its name: two unlabeled checkboxes both printed `off ("item one")`,
+            # which reads as the app naming them so (measured). Say whose label it is.
+            if self.text or self.desc or not beside:
+                said = ""
+            elif own:
+                said = f' ("{own[:40]}")'
+            else:
+                said = f' (no label; beside "{beside[:40]}")'
+            parts.append(f"{'ON' if self.checked else 'off'}" + said)
         return f"{'  ' * min(self.depth, 12)}{flags:<3} {' '.join(parts) or self.cls.split('.')[-1]}  [{self.x1},{self.y1}][{self.x2},{self.y2}]"
 
 
@@ -611,6 +620,7 @@ def tap(sel, index=None, long=False, expect=None, within=None, allow_any=False):
               file=sys.stderr)
     n = clickable_ancestor(matched)
     n = ensure_tappable(sel, n, index or 0, within)
+    refuse_a_stand_in(sel, matched, n)
     x, y = n.center
     # The dump still lists nodes the keyboard covers: a tap meant for "Create" typed a "g" into a
     # field, twice (measured). Same for the stylus pill over a nav rail.
@@ -633,6 +643,24 @@ def tap(sel, index=None, long=False, expect=None, within=None, allow_any=False):
     # The label of what the SELECTOR matched, not the first label inside the clickable container:
     # `tap "desc=Remove qa_off2"` printed "qa_off2", a neighbour's text (measured).
     print(f"{'longpress' if long else 'tap'}: {matched.label() or shown(n) or sel} @({x},{y}){note}")
+
+
+def refuse_a_stand_in(sel, matched, n):
+    """
+    The clickable that `clickable_ancestor` found stands in for a label that is not clickable. When it is
+    half the screen or more, its centre is somewhere else entirely: `tap "text=Remember me"` climbed to
+    a full-screen container (it clears focus), pressed (540,1200), printed "tap:" and toggled nothing —
+    and a false "the upgrade logs everyone out" P1 followed (measured).
+    """
+    if n is matched or matched.clickable or n.w * n.h == 0:
+        return
+    w, h = screen_size()
+    if n.w * n.h * 2 >= w * h and n.w * n.h >= 4 * max(1, matched.w * matched.h):
+        raise SystemExit(
+            f"refusing: {sel!r} is not clickable, and the nearest clickable around it covers "
+            f"{100 * n.w * n.h // (w * h)}% of the screen ([{n.x1},{n.y1}][{n.x2},{n.y2}]) — its centre is not "
+            "this control. Tap the control itself (the checkbox or switch beside the label: `state` finds it)."
+        )
 
 
 def find_elsewhere(sel, within=None):
@@ -880,8 +908,17 @@ def show_keyboard():
     )
 
 
-def type_text(text, expect=None):
+def focused_field(nodes):
+    return next((n for n in nodes if n.focused and (n.cls.endswith("EditText") or n.password)), None)
+
+
+def type_text(text, expect=None, into=None, check=True):
     check_expected(expect)
+    if into:
+        # Tap the field first and stop if the tap is refused: a refused tap followed by `type` wrote into
+        # whichever field still had focus (measured). One command, so a shell chain can't skip the refusal.
+        tap(into)
+        time.sleep(0.4)
     # What `input text` cannot do, said out loud instead of printing "typed" (R8): a newline is a
     # command separator on the device's shell, and non-ASCII never arrives — `input text "Grüße"`
     # types "Gr" and drops the rest, which reads as an app that eats characters.
@@ -896,12 +933,24 @@ def type_text(text, expect=None):
     # argument — it is re-parsed by the device's shell after adb joins the arguments with spaces.
     esc = re.sub(r"([\\\"'`$&|;<>()*?!#~])", r"\\\1", text).replace(" ", "%s")
     shell("input", "text", shlex.quote(esc))
-    print(f"typed: {text!r}")
+    # Read it back: once the first character was dropped, and "typed: 'A_R8_Place'" hid it until the
+    # record showed up as "_R8_Place" (measured). A password field shows dots — never read, never echoed.
+    field = focused_field(dump()) if check else None
+    if field is not None and field.password:
+        print(f"typed: {len(text)} characters into a password field (not read back)")
+        return
+    if field is not None and text not in field.text:
+        raise SystemExit(f"typed {text!r}, but the field reads {field.text!r}. "
+                         "Clear it and type again; `--no-check` for a field that reformats what it gets")
+    print(f"typed: {text!r}" + ("" if field is not None or not check else " (no focused text field to read it back from)"))
 
 
-def screenshot(name, outdir):
+def screenshot(name, outdir, overwrite=False):
     os.makedirs(outdir, exist_ok=True)
     path = os.path.join(outdir, name if name.endswith(".png") else name + ".png")
+    # A reused name, and the gate's old screenshot was read as the new build's (measured).
+    if os.path.exists(path) and not overwrite:
+        raise SystemExit(f"{path} already exists — it is an earlier screenshot. Pick a new name, or --overwrite")
     # Multi-display emulators: `screencap -p` prints a warning into the stream and corrupts the
     # PNG; it needs the id of the main display — and **which one is first in the list is not fixed**.
     # An emulator listed EMU_display_1 first, so every shot was a black portrait image of the other
@@ -1781,6 +1830,8 @@ def main():
     s.add_argument("--in", dest="within", help=in_help)
     s = sub.add_parser("scroll-to"); s.add_argument("sel"); s.add_argument("--dir", default="down", choices=["down", "up"]); s.add_argument("--max", type=int, default=12)
     s = sub.add_parser("type"); s.add_argument("text"); s.add_argument("--expect", help=expect_help)
+    s.add_argument("--into", help="tap this field first; nothing is typed if the tap is refused")
+    s.add_argument("--no-check", action="store_true", help="don't read the field back (it reformats what it gets)")
     s = sub.add_parser("clear"); s.add_argument("sel", nargs="?"); s.add_argument("--n", type=int, default=80)
     s.add_argument("--expect", help=expect_help)
     s = sub.add_parser("key"); s.add_argument("key", help="e.g. ENTER, BACK, DEL, TAB")
@@ -1802,6 +1853,7 @@ def main():
     sub.add_parser("kill", help="HOME + am kill: process death that keeps saved state (R9)")
     s = sub.add_parser("open"); s.add_argument("url", help="deep link / VIEW intent, delivered to the app")
     s = sub.add_parser("shot"); s.add_argument("name"); s.add_argument("--dir", default="qa-shots")
+    s.add_argument("--overwrite", action="store_true", help="replace a screenshot already saved under that name")
     s = sub.add_parser("rotate"); s.add_argument("value", choices=["0", "1", "2", "3", "natural"])
     s = sub.add_parser("size", help="resizable emulator: phone, unfolded or tablet — read back from the window manager")
     s.add_argument("kind", choices=sorted(SIZES))
@@ -1932,7 +1984,7 @@ def main():
     elif a.cmd == "scroll-to":
         scroll_to(a.sel, a.dir, a.max)
     elif a.cmd == "type":
-        type_text(a.text, a.expect)
+        type_text(a.text, a.expect, a.into, not a.no_check)
     elif a.cmd == "clear":
         clear_field(a.sel, a.n, a.expect)
     elif a.cmd == "key":
@@ -2004,7 +2056,7 @@ def main():
             raise SystemExit(f"could not open {a.url!r} in {a.pkg}: {out.strip()}")
         print(f"opened {a.url} in {a.pkg}")
     elif a.cmd == "shot":
-        screenshot(a.name, a.dir)
+        screenshot(a.name, a.dir, a.overwrite)
     elif a.cmd == "rotate":
         rotate(a.value)
     elif a.cmd == "size":

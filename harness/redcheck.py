@@ -255,13 +255,16 @@ def reports_written_since(roots, before, name_filter, started):
                 if bad is not None:
                     first = (bad.get("message") or (bad.text or "")).strip().splitlines()
                     line = f"{name}: {first[0][:160] if first else '(no message)'}"
-                    if is_assertion(bad.get("type")):
+                    # An Android connected-test report has no `type`: the class is the message's first word.
+                    # A Compose assertion read as a crash there, and two real reds were read by hand (measured).
+                    kind = bad.get("type") or (re.match(r"\s*([\w.$]+)", bad.get("message") or bad.text or "") or [None, None])[1]
+                    if is_assertion(kind):
                         failures += 1
                         here[1] += 1
                         messages.append(line)
                     else:
                         # R6: a crash before the check is not the test saying "expected this, got that".
-                        crashes.append(f"{line}  [{bad.get('type') or 'no type'}]")
+                        crashes.append(f"{line}  [{kind or 'no type'}]")
                         here[3] += 1
                 elif case.find("skipped") is not None:
                     skipped += 1

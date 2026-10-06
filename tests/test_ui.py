@@ -270,5 +270,109 @@ class Store(Case):
         self.assertNotIn("QAsecret", r.stdout + r.stderr)
 
 
+def raw(cls, bounds, text="", children="", **attrs):
+    """A node with any attribute set — focused fields, checkboxes, password fields."""
+    x1, y1, x2, y2 = bounds
+    base = {"index": "0", "text": text, "resource-id": "", "class": cls, "package": PKG, "content-desc": "",
+            "checkable": "false", "checked": "false", "clickable": "false", "enabled": "true",
+            "focusable": "true", "focused": "false", "scrollable": "false", "long-clickable": "false",
+            "password": "false", "selected": "false"}
+    base.update({k.replace("_", "-"): v for k, v in attrs.items()})
+    body = " ".join(f'{k}="{v}"' for k, v in base.items())
+    return f'<node {body} bounds="[{x1},{y1}][{x2},{y2}]">{children}</node>'
+
+
+def screen(*children):
+    return HEAD + node("android.widget.FrameLayout", (0, 0, 1080, 2400), children="".join(children)) + TAIL
+
+
+# A login form whose whole surface is one clickable (it clears focus), and a label that is not.
+REMEMBER_ME = screen(raw("android.view.View", (0, 0, 1080, 2400), clickable="true", children=(
+    raw("android.widget.CheckBox", (40, 1000, 120, 1080), checkable="true", clickable="true")
+    + raw("android.widget.TextView", (140, 1010, 420, 1070), text="Remember me"))))
+
+
+def one_field(text, focused="true", password="false"):
+    return screen(raw("android.widget.EditText", (40, 400, 1040, 520), text=text, clickable="true",
+                      focused=focused, password=password),
+                  raw("android.widget.EditText", (40, 600, 1040, 720), text="Notes", clickable="true"))
+
+
+class TapTarget(Case):
+    def test_a_label_inside_a_full_screen_clickable_is_refused_not_tapped_at_the_centre(self):
+        # Measured: `tap "text=Remember me"` pressed (540,1200), said "tap:", toggled nothing.
+        r = self.run_ui("tap", "text=Remember me", STUB_DUMP=self.with_dump(REMEMBER_ME))
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertSaid(r, "refusing")
+        self.assertNoInput()
+
+    def test_a_label_inside_its_own_row_is_still_tapped(self):
+        r = self.run_ui("tap", "text=QA_Item1", STUB_DUMP=self.with_dump(TWO_ROWS))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertIn("shell input tap 540 300", self.adb_calls())
+
+
+class Typing(Case):
+    def test_text_that_did_not_land_as_sent_fails(self):
+        # Measured: the first character was dropped, and `type` printed "typed: 'A_R8_Place'".
+        r = self.run_ui("type", "A_R8_Place", STUB_DUMP=self.with_dump(one_field("_R8_Place")))
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertSaid(r, "the field reads '_R8_Place'")
+
+    def test_text_that_landed_passes(self):
+        r = self.run_ui("type", "A_R8_Place", STUB_DUMP=self.with_dump(one_field("A_R8_Place")))
+        self.assertEqual(0, r.returncode, r.stderr)
+
+    def test_a_password_field_is_not_read_back(self):
+        r = self.run_ui("type", "QAsecret", STUB_DUMP=self.with_dump(one_field("••••••••", password="true")))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertNotIn("QAsecret", r.stdout + r.stderr)
+
+    def test_into_a_field_that_is_not_there_types_nothing(self):
+        # Measured: a refused tap, then `type` wrote into whichever field still had focus.
+        r = self.run_ui("type", "A_R8_Place", "--into", "text=Title", STUB_DUMP=self.with_dump(one_field("")))
+        self.assertNotEqual(0, r.returncode)
+        self.assertNoInput()
+
+    def test_into_taps_the_field_then_types(self):
+        r = self.run_ui("type", "A_R8_Place", "--into", "text=A_R8_Place",
+                        STUB_DUMP=self.with_dump(one_field("A_R8_Place")))
+        self.assertEqual(0, r.returncode, r.stderr)
+        calls = [c for c in self.adb_calls() if "input" in c]
+        self.assertEqual("shell input tap 540 460", calls[0])
+        self.assertTrue(calls[1].startswith("shell input text"), calls)
+
+
+# A checklist row: two checkboxes with no label of their own, and one text beside them.
+CHECKLIST = screen(raw("android.view.View", (0, 300, 1080, 420), children=(
+    raw("android.widget.CheckBox", (20, 320, 100, 400), checkable="true", clickable="true")
+    + raw("android.widget.TextView", (120, 320, 600, 400), text="item one")
+    + raw("android.widget.CheckBox", (980, 320, 1060, 400), checkable="true", clickable="true"))))
+
+
+class DumpLabels(Case):
+    def test_a_neighbours_label_is_marked_as_a_neighbours(self):
+        # Measured: both unlabeled checkboxes printed `off ("item one")`, as if the app named them so.
+        r = self.run_ui("dump", STUB_DUMP=self.with_dump(CHECKLIST))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertNotIn('off ("item one")', r.stdout)
+        self.assertEqual(2, r.stdout.count('off (no label; beside "item one")'), r.stdout)
+
+
+class Screenshots(Case):
+    def test_a_name_already_taken_is_refused(self):
+        # Measured: a reused name, and the gate's old screenshot was read as the new build's.
+        shots = os.path.join(self.dir, "shots")
+        os.makedirs(shots)
+        old = os.path.join(shots, "home.png")
+        with open(old, "wb") as fh:
+            fh.write(b"old")
+        r = self.run_ui("shot", "home", "--dir", shots)
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertSaid(r, "already exists")
+        with open(old, "rb") as fh:
+            self.assertEqual(b"old", fh.read())
+
+
 if __name__ == "__main__":
     unittest.main()
