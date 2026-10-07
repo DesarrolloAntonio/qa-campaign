@@ -807,7 +807,11 @@ Three more things that process needs, all found the hard way:
 - **The human, again.** A release build isn't debuggable: no injected session and no STORE oracle.
   The one real login is needed once more, and every claim in that process rests on UI and API only —
   say so in its report. Put that login in the queue **when the release process is planned**, not
-  when it is reached.
+  when it is reached. **Before queueing it, try the fake server**: record the real server's answers
+  for the routes the app calls (through the API adapter), serve them from `fake_server.py`, and sign
+  the release build in to it with invented credentials. That drove an R8 pass of every screen with no
+  password typed (measured). It proves R8 and the release packaging. It does not prove the real server
+  accepts what the build sends, so a write the app sends still needs the API oracle on the real server.
 
 ---
 

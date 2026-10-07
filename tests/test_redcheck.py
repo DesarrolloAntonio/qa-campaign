@@ -17,6 +17,11 @@ VERIFY = ('<testcase name="testSave" classname="{cls}" time="0.1">'
 CRASH = ('<testcase name="testSave" classname="{cls}" time="0.1">'
          '<failure message="lateinit property db has not been initialized" '
          'type="kotlin.UninitializedPropertyAccessException">at Foo</failure></testcase>')
+# An Android connected-test report: no `type` attribute, the exception class only in the message.
+COMPOSE_FAIL = ('<testcase name="testSave" classname="{cls}" time="0.1">'
+                '<failure message="java.lang.AssertionError: Failed: assertExists. Reason: Expected exactly '
+                '\'1\' node but could not find any node that satisfies: (Text = \'[Save]\')">'
+                'java.lang.AssertionError: Failed: assertExists.\n\tat androidx.compose.ui.test</failure></testcase>')
 SKIP = '<testcase name="testSave" classname="{cls}" time="0"><skipped/></testcase>'
 
 
@@ -72,6 +77,13 @@ class RedCheck(Case):
                              self.runner({"build/test-results/test/TEST-a.xml": junit(CRASH)}, code=1))
         self.assertEqual(2, r.returncode)
         self.assertSaid(r, "NOT RED")
+
+    def test_a_compose_assertion_with_no_type_is_a_red(self):
+        # Measured: a connected-test XML carries no failure `type`, and the real red read as a crash.
+        r = self.run_redcheck("--expect", "red", "--test", "FooTest", "--",
+                             self.runner({"build/outputs/androidTest-results/connected/TEST-a.xml": junit(COMPOSE_FAIL)}, code=1))
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "RED: 1 of 1 failed")
 
     def test_only_skipped_is_not_run(self):
         r = self.run_redcheck("--expect", "green", "--test", "FooTest", "--",
