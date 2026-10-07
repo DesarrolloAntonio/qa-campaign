@@ -109,6 +109,21 @@ reach the server. An online save that sends only its own field and then marks th
 throws away what was waiting in the queue. Measured: four P0s in one campaign, in three modules,
 none of which showed up offline-only or online-only.
 
+Three more checks belong to full depth, because a campaign that drove every control offline and
+online still let them through (measured: six data bugs in one pass, all in scenarios no inventory
+row named):
+
+- **Parent and child made offline.** Create a container offline (folder, board, list) and an item
+  inside it, then drain. API decides: the child hangs from the parent's *real* id, not from the root
+  and not from the temporary one. A temporary id read as "no parent" filed the item at the root
+  (measured).
+- **A copy is compared field by field.** Copy or duplicate a record and diff the copy against the
+  original through the API, every field the original has — colour, dates, labels, assignees —, not
+  only the title. A copy arrived without its colour and nobody had looked (measured).
+- **Discarding a pending change undoes it locally.** Discard a queued write and check the local
+  store holds the server's value again. An empty queue proves nothing: a discarded rename stayed on
+  the device for good while the queue said zero (measured).
+
 A flat checklist of N scenarios × M devices is never executed. A short list of gates with a hard
 stop at each one is.
 
