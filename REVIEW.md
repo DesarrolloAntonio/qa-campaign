@@ -6,6 +6,26 @@ Branch `review/fable-pass`, from `a1ee970`. All six phases done. Nothing pushed,
 3.2.57, macOS; the 71 also pass on the system Python 3.9.6, 42.7 s). No device was used: every
 claim below about device behaviour comes from the code and the stub.
 
+## Status on 2026-11-21 — what a later pass closed
+
+This file is the review as it was written. Since then (PRs #23–#27):
+
+- **Harness 1** (`type` and backslashes) — confirmed on an API 35 emulator and fixed; a literal `%s`
+  turning into a space was found and fixed with it (#25).
+- **Harness 2** (`db` and an implicit alias) — fixed: a cell is hidden when it depends on a secret,
+  whatever the query calls it (#26).
+- **Harness 3** (tracebacks) — partly: a non-numeric `Content-Length` in `fake_server.py` no longer
+  drops the connection (#23). The others are open.
+- **Skill 1** (§2.2 does not carry the rules) — done, with a row per obligation in the run report (#24).
+- **Skill 2** (§2.1 has no step for the session) — done as step 11 (#27).
+- **Docs:** the README's "hides secrets everywhere it prints" now says where hiding applies (#24).
+- **Not in this review, found and fixed in #23:** secret keys written as one word (`sessionid`)
+  printed; `assert --absent` and `wait --gone` passed on an item showing in a dropdown; `redcheck.py`
+  overwrote the kept original after a killed run; `launch --pkg`; a list-form `packagePrefix` with no
+  `android.package`; chunked bodies in `fake_server.py`; a `%` in `net.sh reach`'s path.
+
+Still open: harness 4–9, skill 3–14, docs 1–8.
+
 ## (a) Fixed
 
 Each regression test was seen failing before its fix, on its own assertion.
