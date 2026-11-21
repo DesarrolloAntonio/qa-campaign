@@ -1,5 +1,7 @@
 """ui.py's contract: what it refuses, and what it never sends to a device."""
+import html
 import os
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -406,6 +408,23 @@ class Typing(Case):
         r = self.run_ui("type", "QAsecret", STUB_DUMP=self.with_dump(one_field("••••••••", password="true")))
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertNotIn("QAsecret", r.stdout + r.stderr)
+
+    def test_shell_characters_arrive_as_typed(self):
+        # Seen on an API 35 emulator: each of & ( ) ' $ | ; < > * ? ! # ~ " ` \\ was sent with a backslash
+        # in front, inside quotes that already protect it, and the field read `a\\&b \\(1\\) it\\'s`.
+        text = "a&b (1) it's"
+        r = self.run_ui("type", text, STUB_DUMP=self.with_dump(one_field(html.escape(text))))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(["shell input text " + shlex.quote("a&b%s(1)%sit's")],
+                         [c for c in self.adb_calls() if "input text" in c])
+
+    def test_a_percent_s_in_the_text_is_not_turned_into_a_space(self):
+        # `input text` reads %s as a space and has no escape for it: "100%sure" arrived as "100 ure"
+        # (seen on the same emulator). Sent in two pieces, the % and the s never meet.
+        r = self.run_ui("type", "100%sure", STUB_DUMP=self.with_dump(one_field("100%sure")))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(["shell input text 100%", "shell input text sure"],
+                         [c for c in self.adb_calls() if "input text" in c])
 
     def test_into_a_field_that_is_not_there_types_nothing(self):
         # Measured: a refused tap, then `type` wrote into whichever field still had focus.

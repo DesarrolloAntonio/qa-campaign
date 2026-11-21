@@ -937,10 +937,13 @@ def type_text(text, expect=None, into=None, check=True):
     if any(ord(c) > 127 for c in text):
         raise SystemExit(f"`type` cannot send non-ASCII text ({text!r}): `input text` drops it. "
                          "Paste it through the clipboard (`am broadcast` in your project's script) or use ASCII in the fixture")
-    # `input text` chokes on spaces and several symbols: escape them one by one, then quote the whole
-    # argument — it is re-parsed by the device's shell after adb joins the arguments with spaces.
-    esc = re.sub(r"([\\\"'`$&|;<>()*?!#~])", r"\\\1", text).replace(" ", "%s")
-    shell("input", "text", shlex.quote(esc))
+    # Quoted once, for the device's shell, which re-parses what adb joins with spaces — and nothing
+    # more. Each symbol used to get a backslash as well, inside quotes that already protect it, and
+    # `input text` types a backslash as a backslash: "a&b (1)" arrived as `a\\&b \\(1\\)` (seen on API 35).
+    # The one thing `input text` reads is %s, a space, and it has no escape for it: a literal "%s" is
+    # sent in two pieces so the % and the s never meet ("100%sure" arrived as "100 ure").
+    for piece in re.split(r"(?<=%)(?=s)", text):
+        shell("input", "text", shlex.quote(piece.replace(" ", "%s")))
     # Read it back: once the first character was dropped, and "typed: 'A_R8_Place'" hid it until the
     # record showed up as "_R8_Place" (measured). A password field shows dots — never read, never echoed.
     field = focused_field(dump()) if check else None

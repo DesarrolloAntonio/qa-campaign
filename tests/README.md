@@ -54,6 +54,7 @@ What they pin down is the **contract**, not the implementation:
 | refuse a `--break` on a file whose original is still kept from a killed run | the next run saved the broken text over the only copy of the original, then deleted it |
 | answer `launch` for the package `--pkg` names, and take a list-form `packagePrefix` as the app in `a11y` and for popups | "did not bring X to the front: X is there"; `a11y` refused a config its own message suggested |
 | print a chunked request body, and answer a request whose `Content-Length` is not a number | the log showed a POST that sent nothing; the app saw a dropped connection instead of the status asked for |
+| type shell characters and a literal `%s` as given | each symbol arrived with a backslash in front, and `100%sure` as `100 ure` (seen on API 35) |
 | send a `%` in the probe's path as written | the path sits in a `printf` format, and `/a%20b` reached the server mangled |
 
 Adding a test: put it beside the others, use `harness.Case` (it builds the workspace and the stub), and
