@@ -251,8 +251,9 @@ instead: the **adapter** reads that file to talk to your server as the API oracl
 session is **injected** into the store the login would have written — or signed in against the fake
 server below. A real, typed login is a **queue item for you**, once, because only you can do it.
 
-The harness hides secret-looking values everywhere it prints: the store, the log, the request bodies
-of the fake server. If you have a field that is a credential in your product but doesn't look like
+The harness hides secret-looking values where it prints what the app stored or sent: the store, the
+log, the request line and body of the fake server. What is on the screen (`dump`, `find`, `watch`) and
+a crash's stack trace are printed as they are. If you have a field that is a credential in your product but doesn't look like
 one, name it in `android.secretKeys`.
 
 ## The fake server
