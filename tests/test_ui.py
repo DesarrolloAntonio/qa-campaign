@@ -90,6 +90,49 @@ class Selectors(Case):
         self.assertNoInput()
 
 
+# A Compose dropdown: its item is in a window of its own, missing from the plain dump while it shows.
+BEHIND = node("android.widget.FrameLayout", (0, 0, 1080, 2400),
+              children=node("android.widget.TextView", (0, 100, 1080, 200), text="Home"))
+POPUP = node("android.widget.FrameLayout", (500, 300, 1000, 700),
+             children=node("android.widget.TextView", (500, 300, 1000, 400), text="Delete all", clickable="true"))
+SCREEN = HEAD + BEHIND + TAIL
+SCREEN_WITH_POPUP = ("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n<displays><display><window>"
+                     "<hierarchy>" + BEHIND + "</hierarchy></window><window><hierarchy>" + POPUP
+                     + "</hierarchy></window></display></displays>")
+
+
+class Popups(Case):
+    """R8: `find` and `wait` saw a dropdown's item while `assert --absent` and `wait --gone` said it was gone."""
+
+    def popup(self):
+        return {"STUB_DUMP": self.with_dump(SCREEN), "STUB_DUMP_WINDOWS": self.with_dump(SCREEN_WITH_POPUP, "windows.xml")}
+
+    def test_an_item_showing_in_a_dropdown_is_not_absent(self):
+        r = self.run_ui("assert", "text=Delete all", "--absent", **self.popup())
+        self.assertEqual(1, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "another window")
+
+    def test_an_item_showing_in_a_dropdown_is_not_gone(self):
+        r = self.run_ui("wait", "text=Delete all", "--gone", "--timeout", "2", **self.popup())
+        self.assertNotEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "TIMEOUT")
+
+    def test_an_item_showing_in_a_dropdown_is_present_and_says_where(self):
+        r = self.run_ui("assert", "text=Delete all", **self.popup())
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "another window")
+
+    def test_an_item_in_no_window_is_still_absent(self):
+        r = self.run_ui("assert", "text=Publish", "--absent", **self.popup())
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertEqual(0, self.run_ui("wait", "text=Publish", "--gone", "--timeout", "2", **self.popup()).returncode)
+
+    def test_a_list_of_packages_is_enough_to_find_a_popup(self):
+        self.write_config(android={"packagePrefix": [PKG, PKG + ".debug"]})
+        r = self.run_ui("find", "text=Delete all", **self.popup())
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+
+
 class Guards(Case):
     def test_a_device_that_is_not_on_the_allow_list_is_refused(self):
         r = self.run_ui("dump", STUB_SERIAL="RFCRB0XRA7R")
@@ -215,6 +258,22 @@ class WhichApp(Case):
         self.assertSaid(r, "0 crashes")
 
 
+    def test_launch_answers_for_the_package_it_was_given(self):
+        # `--pkg` names the app for this command; the check compared with the configured one only.
+        r = self.run_ui("--pkg", "com.other.app", "launch", STUB_FRONT="com.other.app")
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "launched com.other.app")
+
+    def test_launch_still_fails_when_something_else_is_in_front(self):
+        r = self.run_ui("launch", STUB_FRONT="com.other.app")
+        self.assertEqual(1, r.returncode, r.stdout + r.stderr)
+
+    def test_a_list_of_packages_is_enough_for_a11y(self):
+        self.write_config(android={"packagePrefix": [PKG, PKG + ".debug"]})
+        r = self.run_ui("a11y", STUB_DUMP=self.with_dump(TWO_ROWS))
+        self.assertSaid(r, "a11y: ")
+
+
 class Secrets(Case):
     """R11: the STORE and LOG oracles never print a credential."""
 
@@ -229,6 +288,26 @@ class Secrets(Case):
         for secret in ("hunter2", "1234", "abc.def.ghi"):
             self.assertNotIn(secret, r.stdout)
         self.assertIn("ana", r.stdout)
+
+
+    def hidden(self, text, inline=False):
+        code = ("import sys; sys.path.insert(0, %r); import ui; "
+                "sys.stdout.write(ui.hide_secrets_in_text(sys.stdin.read(), inline=%r))"
+                % (os.path.dirname(UI), inline))
+        r = subprocess.run([sys.executable, "-c", code], input=text, capture_output=True, text=True,
+                           env=self.env())
+        self.assertEqual(0, r.returncode, r.stderr)
+        return r.stdout
+
+    def test_a_secret_key_written_as_one_word_is_hidden(self):
+        # `sessionId` was hidden and `sessionid` — Django's own cookie name — was printed: the name was
+        # only read by its parts, and a name in one case has none.
+        out = self.hidden('{"sessionid": "S1abc", "accesstoken": "T2abc", "clientsecret": "C3abc", "author": "ana"}\n'
+                          '<string name="authtoken">A4abc</string><string name="JSESSIONID">J5abc</string>\n')
+        out += self.hidden("login ok sessionid=S6abc csrftoken=X7abc userpassword=P8abc author=ana\n", inline=True)
+        for secret in ("S1abc", "T2abc", "C3abc", "A4abc", "J5abc", "S6abc", "X7abc", "P8abc"):
+            self.assertNotIn(secret, out)
+        self.assertEqual(2, out.count("ana"), "a name that only resembles a secret word is not hidden")
 
 
 class Store(Case):

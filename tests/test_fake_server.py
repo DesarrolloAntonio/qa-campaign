@@ -45,6 +45,24 @@ class FakeServer(Case):
             time.sleep(0.1)
         return text
 
+    def test_a_chunked_body_is_printed_like_any_other(self):
+        # A client that streams its body sends no Content-Length: the log showed a POST that sent nothing.
+        conn = self.server("--status", "200")
+        conn.request("POST", "/api/login", body=iter([b'{"user":"ana",', b'"password":"hunter2"}']),
+                     headers={"Transfer-Encoding": "chunked"}, encode_chunked=True)
+        conn.getresponse().read()
+        printed = self.printed()
+        self.assertIn('"user":"ana"', printed)
+        self.assertNotIn("hunter2", printed)
+
+    def test_a_content_length_that_is_not_a_number_still_gets_the_answer(self):
+        conn = self.server("--status", "503")
+        conn.putrequest("POST", "/api/items")
+        conn.putheader("Content-Length", "abc")
+        conn.endheaders()
+        self.assertEqual(503, conn.getresponse().status)
+        self.assertIn("not a number", self.printed())
+
     def test_head_answers_the_headers_and_no_body(self):
         conn = self.server("--status", "200", "--body", '{"ok":true}')
         conn.request("HEAD", "/api/items")

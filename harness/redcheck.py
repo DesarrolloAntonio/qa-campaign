@@ -60,7 +60,7 @@ import xml.etree.ElementTree as ET
 
 def keep_path(path):
     return os.path.join(tempfile.gettempdir(),
-                        "redcheck-" + hashlib.sha256(os.path.abspath(path).encode()).hexdigest()[:12]
+                        "redcheck-" + hashlib.sha256(os.path.realpath(path).encode()).hexdigest()[:12]
                         + "-" + os.path.basename(path))
 
 
@@ -76,9 +76,22 @@ def apply_breaks(breaks):
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda *_: sys.exit(2))
     for path, _, _ in breaks or []:
-        if os.path.exists(keep_path(path)):
-            print(f"note: a copy of {path} from an earlier run is still at {keep_path(path)} — a break may "
-                  "have been left in place; compare them before trusting this run.", file=sys.stderr)
+        keep = keep_path(path)
+        if not os.path.exists(keep):
+            continue
+        # A copy still there means an earlier run was killed with its break in place, and the copy is
+        # the only original. This used to print a note and carry on: a second run with another break on
+        # the same file saved the BROKEN text over the copy, "restored" that, and deleted it (measured).
+        try:
+            same = open(keep, "rb").read() == open(path, "rb").read()
+        except OSError:
+            same = False
+        if same:
+            os.remove(keep)                # put back by hand since: the copy says nothing new
+            continue
+        refuse(f"--break {path}: a copy of its original from an earlier run is still at {keep}, and the "
+               "file is different now — that run was stopped with its break in place. Put the original "
+               f"back first (`cp {keep} {path}`, or your version control), then run this again.")
     try:
         for path, old, new in breaks or []:
             # One file, one original: `Repo.kt` and `./Repo.kt` kept as two made the second "original"

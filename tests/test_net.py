@@ -16,6 +16,12 @@ class Reach(Case):
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertSaid(r, "HTTP 401 from the server")
 
+    def test_a_percent_in_the_path_reaches_the_server_as_written(self):
+        # The path goes through the device's `printf`: `/a%20b` was read as a format and arrived mangled.
+        r = self.run_net("reach", "http://10.0.2.2:18099/a%20b", STUB_NC_EXIT=0, STUB_HTTP="HTTP/1.0 200 OK")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(1, len([c for c in self.adb_calls() if "GET /a%%20b HTTP/1.1" in c]), self.adb_calls())
+
     def test_a_refused_connection_says_the_computer_proves_nothing(self):
         r = self.run_net("reach", STUB_NC_EXIT=1)
         self.assertEqual(1, r.returncode)

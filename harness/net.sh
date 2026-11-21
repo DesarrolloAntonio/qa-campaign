@@ -225,6 +225,8 @@ tcp_probe() {
 http_probe() {
   local host=$1 port=$2 path=$3 script
   case "$path" in *[!A-Za-z0-9._~/%=?\&+-]*) path="/" ;; esac
+  # The path is inside a `printf` format: `/a%20b` was read as a directive and reached the server mangled.
+  path=$(printf '%s' "$path" | sed 's/%/%%/g')
   script="(printf \"GET $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n\"; sleep 3) | nc -w 8 $host $port"
   if [ -n "$PKG" ]; then script="run-as $PKG sh -c '$script'"; fi
   "$ADB" shell "$script" 2>&1 | tr -d '\r' | sed -n 's|^HTTP/[0-9.]* *\([0-9][0-9][0-9]\).*|\1|p' | head -1

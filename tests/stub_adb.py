@@ -10,6 +10,8 @@ on the allow-list.
     STUB_SERIAL                 the serial `get-serialno` and `devices` report
     STUB_FRONT                  package of the resumed activity (the input guard reads it)
     STUB_DUMP                   file served as the `uiautomator dump` XML; unset = the dump fails
+    STUB_DUMP_WINDOWS           file served for `uiautomator dump --windows` (a popup in a window of its own);
+                                unset = the same tree as STUB_DUMP
     STUB_VALIDATED=yes|no       is there a validated default network
     STUB_AIRPLANE=0|1           `settings get global airplane_mode_on`
     STUB_SETTINGS_LOST=1        that read fails, the way adb over Wi-Fi dies with airplane mode
@@ -81,6 +83,7 @@ if args[0] != "shell":
     out()
 
 cmd = " ".join(args[1:])
+WHICH_DUMP = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "which_dump")
 
 if cmd.startswith("command -v nc"):
     out("/system/bin/nc") if env("STUB_NC", "yes") == "yes" else out("", 1)
@@ -134,10 +137,14 @@ if cmd.startswith("pm list packages"):
     out("\n".join(f"package:{p}" for p in installed))
 if cmd.startswith("uiautomator dump"):
     if env("STUB_DUMP") and os.path.isfile(env("STUB_DUMP")):
+        # The dump and the `cat` that reads it are two adb calls: remember which tree was asked for.
+        with open(WHICH_DUMP, "w") as fh:
+            fh.write(env("STUB_DUMP_WINDOWS", "") if "--windows" in cmd else "")
         out(f"UI hierchary dumped to: {args[-1]}")
     out("ERROR: could not get idle state.")
 if cmd.startswith("cat ") and cmd.endswith("qa_ui.xml"):
-    out(open(env("STUB_DUMP")).read()) if env("STUB_DUMP") else out("", 1)
+    asked = open(WHICH_DUMP).read() if os.path.isfile(WHICH_DUMP) else ""
+    out(open(asked or env("STUB_DUMP")).read()) if env("STUB_DUMP") else out("", 1)
 if cmd.startswith("run-as ") and cmd.endswith(" id"):
     if env("STUB_RUNAS", "yes") == "yes":
         out("uid=10123(u0_a123) gid=10123(u0_a123)")

@@ -75,8 +75,7 @@ def main():
 
     class Handler(BaseHTTPRequestHandler):
         def answer(self):
-            length = int(self.headers.get("Content-Length") or 0)
-            sent = self.rfile.read(length) if length else b""
+            sent, unread = self.body()
             route = routes.get(f"{self.command} {self.path.split('?')[0]}", {})
             status, body = route.get("status", a.status), route.get("body", a.body)
             kind, delay = route.get("type", a.type), route.get("delay", a.delay)
@@ -87,7 +86,7 @@ def main():
             shown_body = hide_secrets_in_text(sent.decode(errors="replace"))[:300] if sent else ""
             shown_path = hide_secrets_in_text(self.path, inline=True)
             print(f"{time.strftime('%H:%M:%S')} {self.command} {shown_path} → {status}"
-                  + (f"  body: {shown_body}" if sent else ""), flush=True)
+                  + (f"  body: {shown_body}" if sent else "") + unread, flush=True)
             if delay:
                 time.sleep(delay)
             raw = body.encode()
@@ -104,6 +103,33 @@ def main():
             # HEAD carries the headers and no body — a client that reads one hangs or errors.
             if self.command != "HEAD":
                 self.wfile.write(raw)
+
+        def body(self):
+            """What the client sent, and a word for the log when it could not be read."""
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                # A client that streams its body sends no Content-Length (OkHttp does for a body of
+                # unknown size): the log showed a request that sent nothing, in a report whose point is
+                # what the app sent.
+                sent = b""
+                try:
+                    while True:
+                        size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                        if size == 0:
+                            while self.rfile.readline().strip():      # trailers, up to the blank line
+                                pass
+                            return sent, ""
+                        sent += self.rfile.read(size)
+                        self.rfile.readline()
+                except ValueError:
+                    return sent, "  (the chunked body could not be read to its end)"
+            raw = self.headers.get("Content-Length") or "0"
+            try:
+                length = int(raw)
+            except ValueError:
+                # It used to end the handler: the app saw a dropped connection — a network failure,
+                # not the status the test asked for.
+                return b"", f"  (Content-Length {raw!r} is not a number: body not read)"
+            return (self.rfile.read(length) if length > 0 else b""), ""
 
         do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = answer
 

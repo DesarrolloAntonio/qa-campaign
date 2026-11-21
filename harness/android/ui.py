@@ -663,12 +663,12 @@ def refuse_a_stand_in(sel, matched, n):
         )
 
 
-def find_elsewhere(sel, within=None):
+def find_elsewhere(sel, within=None, quiet=False):
     """The same selector in the app's other windows (a dropdown, a popup). Says so when it hits."""
-    if not DEFAULT_PKG and not APP_PKG_PREFIX:
+    if not DEFAULT_PKG and not APP_PKG_PREFIX and not APP_PKGS:
         return []          # without a package we cannot tell the app's windows from anyone else's
     found = find_in(sel, within, dump(windows=True))
-    if found:
+    if found and not quiet:
         print(f"note: {sel!r} is in another window of the app (a popup or dropdown), not in the focused one",
               file=sys.stderr)
     return found
@@ -677,7 +677,12 @@ def find_elsewhere(sel, within=None):
 def wait(sel, timeout=15.0, gone=False):
     t0 = time.time()
     while time.time() - t0 < timeout:
-        present = bool(find(sel)) or (not gone and bool(find_elsewhere(sel)))
+        # The app's other windows count in BOTH directions: `--gone` looked at the focused window only,
+        # so an item showing in a dropdown was "gone" at once while `wait` itself still saw it (measured).
+        elsewhere = False
+        present = bool(find(sel))
+        if not present:
+            present = elsewhere = bool(find_elsewhere(sel, quiet=gone))
         if present != gone:
             print(f"{'gone' if gone else 'visible'}: {sel} ({time.time() - t0:.1f}s)")
             return True
@@ -685,6 +690,9 @@ def wait(sel, timeout=15.0, gone=False):
     nodes = dump()
     visible = [n.label() for n in nodes if n.label()][:25]
     hint = "" if gone else " `wait` doesn't scroll: if it may be below the fold, use `scroll-to`."
+    if gone and elsewhere:
+        hint = (" It is not in the focused window but it IS in another window of the app: a popup or "
+                "dropdown is still showing it.")
     raise SystemExit(f"TIMEOUT {timeout}s waiting for {sel!r} to {'disappear' if gone else 'appear'}.{hint} What IS there: {visible}")
 
 
@@ -1127,7 +1135,7 @@ def a11y(min_dp=48):
     # What the tool does NOT count as a defect but is worth seeing: viewport clipping, and
     # things that float by design.
     notes = []
-    if not APP_PKG_PREFIX and not DEFAULT_PKG:
+    if not APP_PKG_PREFIX and not DEFAULT_PKG and not APP_PKGS:
         # R8: a harness with no configuration must SAY SO, not report "0 warnings" over an empty
         # node list. A silent all-clear is the worst thing a checker can do.
         raise SystemExit(
@@ -1139,7 +1147,7 @@ def a11y(min_dp=48):
         # The same silent all-clear one step later: the app is not in front, so there is nothing of
         # it to check, and "0 warnings" would be a lie.
         in_front = sorted({n.pkg for n in nodes if n.pkg})
-        raise SystemExit(f"nothing on screen belongs to {APP_PKG_PREFIX or DEFAULT_PKG}; in front: {', '.join(in_front) or 'nothing'}")
+        raise SystemExit(f"nothing on screen belongs to {APP_PKG_PREFIX or ' / '.join(APP_PKGS) or DEFAULT_PKG}; in front: {', '.join(in_front) or 'nothing'}")
     clickables = [n for n in app_nodes if n.clickable and n.enabled and n.w > 0 and n.h > 0]
     for n in clickables:
         clipping = None
@@ -1299,7 +1307,13 @@ SECRET_PARTS = {"password", "passwd", "pass", "pwd", "passphrase", "secret", "to
                 # material all the same, and `file` printed them whole (measured).
                 "keyset"}
 SECRET_JOINED = ("apikey", "privatekey", "accesskey", "secretkey", "encryptionkey", "masterkey",
-                 "signingkey", "clientkey")
+                 "signingkey", "clientkey",
+                 # A name written in ONE case has no parts to read: `sessionId` was hidden and `sessionid`
+                 # (Django's cookie), `JSESSIONID`, `accesstoken` and `clientsecret` printed (measured).
+                 # Only words long enough not to sit inside an innocent one — not "auth" (author), "pass"
+                 # (passage) or "pin" (shipping).
+                 "password", "passwd", "passphrase", "passcode", "secret", "token", "credential",
+                 "sessionid", "sessid")
 # Project words that are credentials HERE — an NFC card id that signs a driver in, an employee number.
 SECRET_PARTS |= {w.lower() for w in (CONFIG.get("android", {}).get("secretKeys") or [])}
 JWT_RE = re.compile(r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}")
@@ -1972,14 +1986,22 @@ def main():
     elif a.cmd == "state":
         state(a.sel)
     elif a.cmd == "assert":
-        try:
-            present = bool(find_in(a.sel, a.within))
-        except SystemExit as e:
-            if not a.absent or "NOT found:" not in str(e) or str(e).startswith("NOT found: anchor"):
-                raise
-            present = False
-        if present == a.absent:
-            raise SystemExit(f"ASSERT FAILED: {a.sel!r} is {'present' if present else 'absent'}")
+        def seen(look):
+            try:
+                return bool(look(a.sel, a.within))
+            except SystemExit as e:
+                if not a.absent or "NOT found:" not in str(e) or str(e).startswith("NOT found: anchor"):
+                    raise
+                return False
+        # Same windows as `find`, `tap` and `wait`: `assert` read the focused one only, so an item showing
+        # in a dropdown failed `assert` and PASSED `assert --absent` while `find` printed it (measured).
+        # In another window means present, and the note says so; "absent" is only what no window of the
+        # app holds.
+        present = seen(find_in)
+        elsewhere = not present and seen(find_elsewhere)
+        if (present or elsewhere) == a.absent:
+            where = " — in another window of the app, not the focused one" if elsewhere else ""
+            raise SystemExit(f"ASSERT FAILED: {a.sel!r} is {'present' + where if a.absent else 'absent'}")
         print(f"ok: {a.sel} {'absent' if a.absent else 'present'}")
     elif a.cmd == "scroll-to":
         scroll_to(a.sel, a.dir, a.max)
@@ -2015,7 +2037,7 @@ def main():
         shell("monkey", "-p", a.pkg, "-c", "android.intent.category.LAUNCHER", "1")
         time.sleep(1.5)
         front = app_in_front(a.pkg)
-        if not is_app(front):
+        if not is_ours(front, a.pkg):                # `--pkg` names the app for this command
             raise SystemExit(f"`launch` did not bring {a.pkg} to the front: {front or 'nothing'} is there. "
                              "Installed? `installed` says.")
         print(f"launched {a.pkg}")
