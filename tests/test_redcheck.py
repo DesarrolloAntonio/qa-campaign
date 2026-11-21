@@ -134,6 +134,39 @@ class RedCheck(Case):
         with open(source) as fh:
             self.assertEqual(original, fh.read())
 
+    def test_a_copy_left_by_a_killed_run_is_not_overwritten_by_the_next(self):
+        # The copy is the only original once a run is killed with the break in place. The next run, with
+        # another break on the same file, printed a note, saved the BROKEN text over it and deleted it.
+        source = os.path.join(self.dir, "Repo.kt")
+        original = "class Repo {\n    fun save() = dao.insert(item)\n    fun load() = dao.all()\n}\n"
+        with open(source, "w") as fh:
+            fh.write(original)
+        killer = os.path.join(self.dir, "kill.sh")
+        with open(killer, "w") as fh:
+            fh.write("#!/bin/bash\nkill -9 $PPID\nsleep 5\n")
+        os.chmod(killer, 0o755)
+        self.run_redcheck("--expect", "red", "--break", source, "dao.insert(item)", "Unit", "--", killer,
+                          TMPDIR=self.dir)
+        with open(source) as fh:
+            self.assertIn("Unit", fh.read(), "the test needs the break left in place by the kill")
+        r = self.run_redcheck("--expect", "red", "--break", source, "dao.all()", "emptyList()",
+                              "--", self.runner({"build/test-results/test/TEST-a.xml": junit(FAIL)}),
+                              TMPDIR=self.dir)
+        self.assertEqual(2, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "NOT RUN")
+        kept = [f for f in os.listdir(self.dir) if f.startswith("redcheck-")]
+        self.assertEqual(1, len(kept), "the copy of the original must still be there")
+        with open(os.path.join(self.dir, kept[0])) as fh:
+            self.assertEqual(original, fh.read())
+        # Put back by hand, the copy says nothing new: the next run goes ahead and clears it.
+        with open(source, "w") as fh:
+            fh.write(original)
+        r = self.run_redcheck("--expect", "red", "--break", source, "dao.all()", "emptyList()",
+                              "--", self.runner({"build/test-results/test/TEST-a.xml": junit(FAIL)}),
+                              TMPDIR=self.dir)
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertEqual([], [f for f in os.listdir(self.dir) if f.startswith("redcheck-")])
+
     def test_a_break_that_is_not_unique_changes_nothing(self):
         source = os.path.join(self.dir, "Repo.kt")
         original = "fun a() = save()\nfun b() = save()\n"

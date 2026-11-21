@@ -43,8 +43,9 @@ Android-specific debris.
   `'` and read the whole text back (measured). If a text looks cut, check it with `ui.py shot` before
   filing anything.
 - **A modal bottom sheet or dialog is its own window** — the rule and what it costs are in `SKILL.md`
-  R5; on Android the dump returns that window alone, and `find`/`tap` fall back to the app's other
-  windows only when the focused one has no match, so a popup menu is reachable but a screen behind a
+  R5; on Android the dump returns that window alone, and `find`/`tap`/`wait`/`assert` fall back to the app's other
+  windows only when the focused one has no match (so `assert --absent` and `wait --gone` fail while a
+  dropdown still shows the item; `watch` reads the focused window only), so a popup menu is reachable but a screen behind a
   dialog is not.
 
 - **`ui.py size` changes width and density together** (tablet 240 dpi, phone 420): compare layouts in
