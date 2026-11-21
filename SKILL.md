@@ -986,6 +986,15 @@ A gate closes on what the process **proved**. Anything its criterion needed and 
 written into the report as **unproven**, with what stopped you, and either keeps the gate open or goes
 to the human queue as itself (R1).
 
+**Before the first tap of a process**, three reads — each one is a row in the run report, so skipping
+one shows:
+
+- the device runs **the build under test** (`ui.py installed --apk <file>`) and the app is signed in as
+  the account this process names (R11);
+- where the crash log stands: `ui.py clear-crashes` on a device that is the campaign's; on a managed
+  one, the time, so `crashes` at the end can be read from there;
+- **the account's counts** (R10), to compare after the clean-up.
+
 1. **Inventory** the controls and entry points of the area under test (R3) — the first section of
    the process's file, `NN-<area>.md` (§2.1 step 4), in the shape of `templates/inventory.md`.
 2. Drive them with the harness, asserting against the oracles (R5). **For every edit form, once:
@@ -995,6 +1004,15 @@ to the human queue as itself (R1).
    round trips through the UI. It is
    cheap with the API oracle already built, and it found a lost update on an app with no sync at all:
    the form saved the list's stale copy over a change made a minute earlier (measured).
+   **Driving a screen is not the whole of it.** These are owed on every screen of the process; the
+   rules are in §1, this is where they are executed, and each has its row in the run report:
+   - **recreate the UI** (R9) with whatever the screen holds — a half-filled form, an open dialog, a
+     scrolled list — by a change that really recreates it in this app, read back from the system;
+   - **offline, at the depth setup chose** (R1). Short: the screen says it cannot reach the server,
+     nothing spins forever, no write pretends to be saved, and it recovers when the network is back.
+     Full: every control that writes, driven online *and* offline, and the two mixed on one record;
+   - **`ui.py a11y`**, once per screen with everything fully in view — and what it cannot see (R5);
+   - when the driving ends, **`ui.py crashes`**: the app's, since the read before the first tap.
 3. For each finding the **fix mode** covers: fix it, write the regression test, **see it red**
    (R6), add its negative pair where the test asserts an absence (R7). Everything else: write it up
    (§2.3) and queue it. Stop only for what R2 lists. **Record which modules the fix touched** —

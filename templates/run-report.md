@@ -39,11 +39,16 @@ Every screen this process calls verified, with its screenshot opened — not onl
 
 | What | Result |
 |---|---|
+| Build on the device is the build under test (`installed --apk`), signed in as `<account>` | ✅ `<sha256 prefix>` |
 | `<the full cycle you drove, in the order you drove it>` | ✅ / ❌ |
+| UI recreated on every screen (R9): `<which change really recreates it here>`, with `<a half-filled form / an open dialog / a scrolled list>` | ✅ `<N>` of `<N>` screens / ❌ `<which, and why not>` |
+| Offline at depth `<none / short / full>` (R1): `<what was driven with the network cut, and the recovery>` | ✅ / — `<depth none>` |
+| `a11y` on every screen, fully in view | ✅ `<N>` screens, `<N>` warnings → findings `<ids>` |
 | `<absence sweeps re-run for this module (R4), if its code changed: candidates · discarded · driven · confirmed · unproven>` | ✅ / — |
 | Full repository test suite | ✅ `<N>` tests, 0 failures |
 | Crashes / hangs (of the app, not the harness) | ✅ 0 / 0 |
 | `QA_` fixtures cleaned and verified through the API | ✅ |
+| The account's counts, before the process and after the clean-up (R10) | ✅ `<same>` / ❌ `<what changed>` |
 
 ## Open
 
