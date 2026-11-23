@@ -1138,7 +1138,7 @@ ui.py tap "text=Add item"               # selectors: text= text~= desc= desc~= i
                                         # several DIFFERENT controls = a refusal, not the first one (--index N / --any)
 ui.py tap "text=Save" --expect "text=Edit item"   # only if that screen is showing; stops otherwise
 ui.py tap "desc=Delete" --in "text=QA_Item1"      # the Delete of THAT item — refuses if it can't be sure
-ui.py assert "text=Delete" --absent     # exit 1 if wrong — what a script gates on (`wait`, `watch`, `state` too)
+ui.py assert "text=Delete" --absent     # exit 1 if wrong — what a script gates on (`wait`, `watch`, `state --expect on|off` too)
 ui.py installed --apk <file>            # does the device run that exact build? (§2.2 step 5)
 ui.py kill                              # process death that KEEPS saved state (R9); `stop` discards it
 ui.py db <alias> "select ..."           # the app's own store, secrets hidden (`files`, `file`, `log` too)

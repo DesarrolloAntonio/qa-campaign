@@ -17,6 +17,9 @@
 # emulator with no network at all once, and only a Cold Boot fixed it.
 set -euo pipefail
 
+# Usage needs no adb and no device: `net.sh --help` used to answer "no device reachable".
+case "${1:-}" in -h|--help|help) sed -n '2,14p' "$0"; exit 0 ;; esac
+
 find_adb() {
   local c
   # Same rule as ui.py: a mistyped $ADB used to fall through to PATH — a different adb than the one
@@ -52,7 +55,10 @@ while True:
     here = parent
 for p in paths:
     if p and os.path.isfile(p):
-        value = json.load(open(p)).get(key)
+        try:
+            value = json.load(open(p)).get(key)
+        except ValueError as e:
+            sys.exit(f"{p} is not valid JSON: {e}")
         if key == "devices" and isinstance(value, dict):
             value = {k: v for k, v in value.items() if not k.startswith("_")}
         if value: print(json.dumps(value))
@@ -186,10 +192,12 @@ PROBE_OUT=""; PREFIX=""; PKG=""; WHO="the device's shell user"
 # scheme, host, port and path of a url, one line, in that order.
 parse_url() {
   python3 -c '
-import sys
+import re, sys
 from urllib.parse import urlsplit
 u = urlsplit(sys.argv[1] if "://" in sys.argv[1] else "http://" + sys.argv[1])
 if not u.hostname: sys.exit("reach: cannot read a host from %r" % sys.argv[1])
+# The host goes into a command the device shell parses: only what a name or an address is made of.
+if not re.fullmatch(r"[A-Za-z0-9._:-]+", u.hostname): sys.exit("reach: %r is not a host name or an address" % u.hostname)
 print(u.scheme or "http", u.hostname, u.port or (443 if u.scheme == "https" else 80), u.path or "/")
 ' "$1"
 }

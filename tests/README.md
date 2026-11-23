@@ -56,6 +56,10 @@ What they pin down is the **contract**, not the implementation:
 | print a chunked request body, and answer a request whose `Content-Length` is not a number | the log showed a POST that sent nothing; the app saw a dropped connection instead of the status asked for |
 | type shell characters and a literal `%s` as given | each symbol arrived with a backslash in front, and `100%sure` as `100 ure` (seen on API 35) |
 | hide a secret in `db` however the query renames it, and refuse a query that picks its rows by a secret's value | `select password p`, a subquery, a CTE and `substr(token, 1, 5)` all printed it: the guard looked for the word `as` |
+| call only a cached **test** task NOT RUN, and a crash in the other report file a crash | a cached compile step cancelled a test that ran; a crash-only file was called "green" |
+| answer with a sentence, not a traceback, to a command, a port, a routes file or a config that is wrong | a traceback reads like a bug in the harness |
+| keep a host that is not a host out of the device's shell, and print usage with no device | the host is part of a command the device parses; `--help` said "no device reachable" |
+| let a script gate on a switch (`state --expect`), and never echo a password with `--no-check` | `state` exited 0 either way; `--no-check` printed what it typed into a password field |
 | send a `%` in the probe's path as written | the path sits in a `printf` format, and `/a%20b` reached the server mangled |
 
 Adding a test: put it beside the others, use `harness.Case` (it builds the workspace and the stub), and
