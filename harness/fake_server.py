@@ -62,8 +62,18 @@ def main():
         # which reads as a network failure, not as the status the test asked for.
         if ":" not in h:
             raise SystemExit(f'--header {h!r}: expected "Name: value"')
-    routes = json.load(open(a.routes)) if a.routes else {}
+    # A traceback at start reads like a bug in this script (R8): say what is wrong with the file.
+    try:
+        routes = json.load(open(a.routes)) if a.routes else {}
+    except OSError as e:
+        raise SystemExit(f"--routes {a.routes}: {e.strerror or e}")
+    except ValueError as e:
+        raise SystemExit(f"--routes {a.routes} is not valid JSON: {e}")
+    if not isinstance(routes, dict):
+        raise SystemExit(f'--routes {a.routes} must be an object: {{"GET /path": {{"status": 200, "body": "…"}}}}')
     for key, route in routes.items():
+        if not isinstance(route, dict):
+            raise SystemExit(f'route {key!r} must be an object ({{"status": …, "body": …}}), not {route!r}')
         # A route whose body is written as JSON (an object, a number) used to crash the handler thread
         # and the app saw a connection reset, which reads as a network failure (audit).
         if "body" in route and not isinstance(route["body"], str):
@@ -136,7 +146,11 @@ def main():
         def log_message(self, *args):
             pass
 
-    server = NoLookupServer((a.host, a.port), Handler)
+    try:
+        server = NoLookupServer((a.host, a.port), Handler)
+    except OSError as e:
+        raise SystemExit(f"cannot listen on {a.host}:{a.port} — {e.strerror or e}. Another fake server "
+                         "still running? Pick another port, or stop that one.")
     print(f"fake server on http://{a.host}:{a.port} — every request gets {a.status} unless a route says otherwise", flush=True)
     try:
         server.serve_forever()

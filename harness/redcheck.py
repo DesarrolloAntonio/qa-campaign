@@ -329,8 +329,13 @@ def judge(a, cmd):
     started = time.time()
     # Its own session, so the whole tree can be stopped: killing only the command left its children
     # running — a test still spinning, able to write a report after the break was undone.
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            errors="replace", start_new_session=True)
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                errors="replace", start_new_session=True)
+    except OSError as e:
+        # A traceback reads like a bug in this script; it is the command that is not there (R8).
+        print(f"NOT RUN: could not start {cmd[0]!r} — {e.strerror or e}. Run it from the folder that has it.")
+        sys.exit(2)
     try:
         out, err = proc.communicate(timeout=a.timeout)
         output, code = out + err, proc.returncode
@@ -370,18 +375,27 @@ def judge(a, cmd):
         # up-to-date target into GREEN (audit). Name what was counted instead of hiding it.
         print(f"   ⚠️ {len(counted)} test classes counted and no --test: this colour is the whole run's, "
               "not one test's", file=sys.stderr)
-    cached = [l for l in output.splitlines() if "FROM-CACHE" in l and "> Task" in l]
+    # Only a TEST task from the cache restores a report. A cached compile step beside a test task that
+    # ran said NOT RUN over a fresh report. A test task is named `test…`, `…Test` or `…Tests`
+    # (`testDebugUnitTest`, `connectedDebugAndroidTest`, `jvmTest`, `allTests`) — not `compile…TestKotlin`.
+    def is_test_task(line):
+        m = re.search(r"> Task (\S+)", line)
+        name = m.group(1).rsplit(":", 1)[-1] if m else ""
+        return name.startswith("test") or name.endswith(("Test", "Tests"))
+    cached = [l for l in output.splitlines() if "FROM-CACHE" in l and "> Task" in l and is_test_task(l)]
     if cached:
         print(f"NOT RUN: the task came FROM-CACHE, so the report on disk is a restored one, not this run's "
               f"({cached[0].strip()[:120]}). Re-run with --rerun --no-build-cache.")
         sys.exit(2)
     reds = sorted(p for p, (t, f, s, c) in per_path.items() if f)
-    greens = sorted(p for p, (t, f, s, c) in per_path.items() if not f and t > s)
-    if a.test and reds and greens:
+    greens = sorted(p for p, (t, f, s, c) in per_path.items() if not f and not c and t > s)
+    crashed = sorted(p for p, (t, f, s, c) in per_path.items() if not f and c)
+    if a.test and reds and (greens or crashed):
         # The same test, two report files, two different answers — two variants, two source sets or two
         # devices. Summing them gives whichever colour was asked for; neither file is the test's verdict.
-        print(f"NOT RUN: two report files for --test {a.test!r} disagree — red in {reds[0]}, green in "
-              f"{greens[0]}. Name the one task you mean with --reports, and look at why they differ.")
+        other = f"green in {greens[0]}" if greens else f"a crash in {crashed[0]}"
+        print(f"NOT RUN: two report files for --test {a.test!r} disagree — red in {reds[0]}, {other}. "
+              "Name the one task you mean with --reports, and look at why they differ.")
         sys.exit(2)
     if a.test and len(counted) > 1:
         # `--test Foo` names ONE test. Two classes answering to it are two different tests — sibling

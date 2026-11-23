@@ -206,7 +206,10 @@ def require_device():
     global ADB
     if ADB is None:
         ADB = _find_adb()
-    res = subprocess.run([ADB, "get-state"], capture_output=True, timeout=20)
+    try:
+        res = subprocess.run([ADB, "get-state"], capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        raise SystemExit("adb get-state did not answer in 20s — is the adb server stuck? (`adb kill-server`, then `adb devices`)")
     if res.returncode == 0 and b"device" in res.stdout:
         # A work or personal phone plugged into the same machine answers too, and with a single
         # device attached adb picks it without being asked. A listed `devices` is the allow-list.
@@ -764,8 +767,9 @@ def matches_label(sel, label):
     return any(matches(fake, [c]) for c in conds if c[0] in ("text", "desc"))
 
 
-def state(sel):
-    """On/off of the switch or checkbox a selector names — or of the one beside the label it matches."""
+def state(sel, expect=None):
+    """On/off of the switch or checkbox a selector names — or of the one beside the label it matches.
+    `--expect on|off` makes it a gate: exit 1 when it is the other."""
     n = pick(sel)
     # The switch can be the label's own row (an ancestor), inside what matched, or beside it — in that
     # order. The first version looked only inside and beside, and missed a whole-row switch (measured).
@@ -776,6 +780,8 @@ def state(sel):
     if box is None:
         raise SystemExit(f"nothing checkable in or beside {sel!r} — not a switch or checkbox, or its state isn't exposed")
     print(f"{'ON' if box.checked else 'off'}  ({box.cls.split('.')[-1]} [{box.x1},{box.y1}][{box.x2},{box.y2}])")
+    if expect and (expect == "on") != box.checked:
+        raise SystemExit(f"expected {'ON' if expect == 'on' else 'off'}: {sel!r} is {'ON' if box.checked else 'off'}")
     return box.checked
 
 
@@ -946,11 +952,12 @@ def type_text(text, expect=None, into=None, check=True):
         shell("input", "text", shlex.quote(piece.replace(" ", "%s")))
     # Read it back: once the first character was dropped, and "typed: 'A_R8_Place'" hid it until the
     # record showed up as "_R8_Place" (measured). A password field shows dots — never read, never echoed.
-    field = focused_field(dump()) if check else None
+    # The dump is taken with --no-check too: whether the field is a password field decides what is echoed.
+    field = focused_field(dump())
     if field is not None and field.password:
         print(f"typed: {len(text)} characters into a password field (not read back)")
         return
-    if field is not None and text not in field.text:
+    if check and field is not None and text not in field.text:
         raise SystemExit(f"typed {text!r}, but the field reads {field.text!r}. "
                          "Clear it and type again; `--no-check` for a field that reformats what it gets")
     print(f"typed: {text!r}" + ("" if field is not None or not check else " (no focused text field to read it back from)"))
@@ -1891,7 +1898,7 @@ def main():
     s = sub.add_parser("log", help="the running app's log, secrets hidden — never clears the buffer")
     s.add_argument("--lines", type=int, default=300); s.add_argument("--grep")
     s = sub.add_parser("state", help="ON/off of the switch or checkbox a selector names, or the one beside its label")
-    s.add_argument("sel")
+    s.add_argument("sel"); s.add_argument("--expect", choices=["on", "off"], help="exit 1 unless it is in this state")
     s = sub.add_parser("wait"); s.add_argument("sel"); s.add_argument("--timeout", type=float, default=15); s.add_argument("--gone", action="store_true")
     s = sub.add_parser("assert"); s.add_argument("sel"); s.add_argument("--absent", action="store_true")
     s.add_argument("--in", dest="within", help=in_help)
@@ -2037,7 +2044,7 @@ def main():
     elif a.cmd == "log":
         app_log(a.pkg, a.lines, a.grep)
     elif a.cmd == "state":
-        state(a.sel)
+        state(a.sel, a.expect)
     elif a.cmd == "assert":
         def seen(look):
             try:

@@ -22,6 +22,26 @@ class Reach(Case):
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertEqual(1, len([c for c in self.adb_calls() if "GET /a%%20b HTTP/1.1" in c]), self.adb_calls())
 
+    def test_a_host_that_is_not_a_host_never_reaches_the_devices_shell(self):
+        # The host goes into a command the device's shell parses: a typo with a `;` in it would run.
+        r = self.run_net("reach", "http://10.0.2.2;reboot/x", STUB_NC_EXIT=0)
+        self.assertEqual(2, r.returncode, r.stdout + r.stderr)
+        self.assertEqual([], [c for c in self.adb_calls() if "reboot" in c])
+
+    def test_help_needs_no_device(self):
+        r = self.run_net("--help", STUB_STATE="none")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertSaid(r, "net.sh off")
+        self.assertEqual([], self.adb_calls())
+
+    def test_a_config_that_is_not_json_says_so(self):
+        with open(self.config_path, "w") as fh:
+            fh.write("{not json")
+        r = self.run_net("status")
+        self.assertNotEqual(0, r.returncode)
+        self.assertSaid(r, "not valid JSON")
+        self.assertNotIn("Traceback", r.stderr)
+
     def test_a_refused_connection_says_the_computer_proves_nothing(self):
         r = self.run_net("reach", STUB_NC_EXIT=1)
         self.assertEqual(1, r.returncode)
