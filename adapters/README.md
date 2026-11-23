@@ -30,7 +30,7 @@ A small module — a Python file is plenty — that:
    Per account, `username` + `password`, **or** `token` when the server hands out one you can paste
    (an app password, a session cookie), **or** whatever identifier the server signs people in with —
    `nfc` for a card id, for instance. Keys that don't apply are left out. When the session lives in
-   another app (SKILL.md R11, mechanism 5), the adapter can still sign in through the API with a test
+   another app (SKILL.md R11, mechanism 6 in `references/session-injection.md`), the adapter can still sign in through the API with a test
    identifier, and no password exists anywhere.
 2. Authenticates as any of the campaign's accounts (`A` owner, `B` recipient, `C` negative control,
    or one per role — R7) **the way this server signs people in**: a password, an app password, a
