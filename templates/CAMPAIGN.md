@@ -90,7 +90,7 @@ tests run only against these (R10).
 | LOG | `<harness> log` — the app's own log, secrets hidden (`android.secretKeys` for this product's credentials); never clear the buffer |
 | REF | `<the implementation that defines what the domain supports — vendor web client, spec>` |
 
-## 6. Absence sweeps (R4: S1 data never shown · S2 dead control · S3 expected absence · S4 stuck when something fails)
+## 6. Absence sweeps (R4: S1 data never shown · S2 dead control · S3 expected absence · S4 stuck when something fails · S5 placeholder that ships)
 
 Run **once, for the whole product, at setup** (process 00); each finding goes under its module. Each
 module's process re-reads its rows before writing its catalogue, and re-runs the sweeps for that
@@ -105,6 +105,7 @@ What each grep did, not only what survived it (R4) — the numbers have to add u
 | S2 | | | | | |
 | S3 | | | | | |
 | S4 | | | | | |
+| S5 | | | | | |
 
 | ID | Module | Sweep | Sev | Finding | Evidence | Status |
 |---|---|---|---|---|---|---|
