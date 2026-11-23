@@ -344,6 +344,35 @@ class Store(Case):
         self.assertNotIn("hunter2", r.stdout + r.stderr)
         self.assertIn("theme | dark", r.stdout)
 
+    def test_db_hides_a_secret_however_the_query_renames_it(self):
+        # The guard looked for the word `as`: an implicit alias, a subquery, an expression and a key/value
+        # row read under another name all printed the credential.
+        for sql in ("select username, auth_token t from session",
+                    "with s(x) as (select auth_token from session) select x from s",
+                    "select username, substr(auth_token, 1, 5) pre from session",
+                    "select (select auth_token from session) from settings limit 1",
+                    "select value v from settings where key = 'password'"):
+            r = self.run_ui("db", "main", sql, STUB_DATA=self.data)
+            self.assertNotIn("QAtok", r.stdout + r.stderr, sql)
+            self.assertNotIn("hunter2", r.stdout + r.stderr, sql)
+            self.assertEqual(0, r.returncode, sql + "\n" + r.stderr)
+            self.assertIn("<hidden>", r.stdout, sql)
+
+    def test_db_still_prints_what_does_not_depend_on_a_secret(self):
+        r = self.run_ui("db", "main", "select count(*) n, max(username) u from session where auth_token is not null",
+                        STUB_DATA=self.data)
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertIn("1 | ana", r.stdout)
+        r = self.run_ui("db", "main", "select value v from settings where key = 'theme'", STUB_DATA=self.data)
+        self.assertIn("dark", r.stdout)
+
+    def test_db_does_not_answer_whether_a_secret_has_a_given_value(self):
+        # Rows chosen BY the value say what it is by whether anything comes back (as `log --grep` did).
+        r = self.run_ui("db", "main", "select username from session where auth_token = 'QAtok-123'",
+                        STUB_DATA=self.data)
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertNotIn("ana", r.stdout)
+
     def test_a_binary_store_is_never_printed(self):
         r = self.run_ui("file", "session", STUB_DATA=self.data)
         self.assertNotEqual(0, r.returncode)

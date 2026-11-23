@@ -1509,15 +1509,49 @@ def pull_db(alias, pkg=DEFAULT_PKG):
     return path
 
 
+KEY_COLUMNS = ("key", "name", "pref_key", "_key", "setting", "property", "field")
+VALUE_COLUMNS = ("value", "val", "_value", "data", "content")
+
+
+def scrambled_copy(con):
+    """A copy of the database, in memory, with every secret value replaced by a random one — and the
+    tables it could not do that to.
+
+    A query run on both tells which cells DEPEND on a secret: they are the ones that come out
+    different. Names cannot tell — `select password p`, a subquery, a CTE or `substr(token, 1, 5)` all
+    rename the column, and the guard that looked for the word `as` printed every one of them (measured).
+    Empty and NULL stay as they are, so "is there a token at all" still has an answer.
+    """
+    mem = sqlite3.connect(":memory:")
+    con.backup(mem)
+    mem.create_function("qa_secret", 1, lambda k: int(looks_secret(str(k or ""))))
+    quoted = lambda name: '"' + name.replace('"', '""') + '"'          # noqa: E731
+    other = "'\u00a7' || hex(randomblob(8))"
+    failed = []
+    for (name,) in mem.execute("select name from sqlite_master where type = 'trigger'").fetchall():
+        mem.execute(f"drop trigger {quoted(name)}")
+    tables = [r[0] for r in mem.execute("select name from sqlite_master where type = 'table' and name not like 'sqlite_%'")]
+    for table in tables:
+        try:
+            cols = [r[1] for r in mem.execute(f"pragma table_info({quoted(table)})")]
+            for c in (c for c in cols if looks_secret(c)):
+                mem.execute(f"update {quoted(table)} set {quoted(c)} = {other} "
+                            f"where {quoted(c)} is not null and {quoted(c)} != ''")
+            key = next((c for c in cols if c.lower() in KEY_COLUMNS), None)
+            for v in (c for c in cols if key and c.lower() in VALUE_COLUMNS):
+                mem.execute(f"update {quoted(table)} set {quoted(v)} = {other} "
+                            f"where qa_secret({quoted(key)}) and {quoted(v)} is not null and {quoted(v)} != ''")
+        except sqlite3.Error:
+            failed.append(table)
+    return mem, failed
+
+
 def query(path, sql):
     """Runs `sql` on a local SQLite file and prints it, with secret-looking columns hidden (R11).
 
     Read-only, and it says so: an `update`/`delete` used to run against the **temp copy** pulled from
     the device and print nothing, so it looked like a write that worked and changed nothing (audit).
     """
-    if any(looks_secret(t) for t in re.findall(r"[A-Za-z_]\w*", sql)) and " as " in sql.lower():
-        raise SystemExit("a secret-looking column behind an alias or an expression can't be hidden — "
-                         "select it by its own name (R11)")
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         cur = con.execute(sql)
@@ -1526,17 +1560,31 @@ def query(path, sql):
                              "the device, not the app's store. Drive the app to change its data (R10).")
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall()
+        mem, unscrambled = scrambled_copy(con)
+        try:
+            other = mem.execute(sql).fetchall()
+        finally:
+            mem.close()
     except sqlite3.Error as e:
         # A typo'd column used to end in a Python traceback; the database's own words are the answer.
         raise SystemExit(f"SQL error: {e} — in: {sql}")
     finally:
         con.close()
+    if unscrambled and any(looks_secret(t) for t in re.findall(r"[A-Za-z_]\w*", sql)) and " as " in sql.lower():
+        # Where the copy could not be made, names are all there is to go by — the old rule stands.
+        raise SystemExit(f"a secret-looking column behind an alias or an expression can't be hidden in "
+                         f"{', '.join(unscrambled)} — select it by its own name (R11)")
+    if len(other) != len(rows):
+        # Which rows come back depends on a secret's VALUE: the answer itself says what the value is.
+        raise SystemExit("this query chooses its rows by the value of a secret (the same query over other "
+                         "secret values returns a different number of rows), so its result would say what "
+                         "the value is. Ask whether it is set — `is not null`, `!= ''` — not what it is (R11).")
+    depends = [[a != b for a, b in zip(r, o)] for r, o in zip(rows, other)]
     secret = [looks_secret(c) for c in cols]
     # A settings table is `(key, value)`: no column name is secret, and the secret sits in the value
     # of the row whose key says so — `password | hunter2` printed in full (measured).
-    key_col = next((i for i, c in enumerate(cols) if c.lower() in
-                    ("key", "name", "pref_key", "_key", "setting", "property", "field")), None)
-    val_cols = [i for i, c in enumerate(cols) if c.lower() in ("value", "val", "_value", "data", "content")]
+    key_col = next((i for i, c in enumerate(cols) if c.lower() in KEY_COLUMNS), None)
+    val_cols = [i for i, c in enumerate(cols) if c.lower() in VALUE_COLUMNS]
     if key_col is not None and val_cols:
         print(f"(a key/value table: the value is hidden on any row whose {cols[key_col]} looks like a secret)",
               file=sys.stderr)
@@ -1545,8 +1593,10 @@ def query(path, sql):
               file=sys.stderr)
     if cols:
         print(" | ".join(cols))
-    for r in rows:
-        row_secret = list(secret)
+    if any(d and not s for row in depends for d, s in zip(row, secret)):
+        print("(a value that comes from a secret is hidden under whatever name the query gives it)", file=sys.stderr)
+    for r, dep in zip(rows, depends):
+        row_secret = [s or d for s, d in zip(secret, dep)]
         if key_col is not None and val_cols and looks_secret(str(r[key_col] or "")):
             for i in val_cols:
                 row_secret[i] = True
