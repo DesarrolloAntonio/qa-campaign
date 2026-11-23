@@ -134,7 +134,7 @@ human's answer can change it. When **the gate's own criterion** depends on the h
 point reachable" needs them signed in to another app — close it **assuming the queue item**, name the
 item in the log, and reopen when the answer comes back different (R2).
 
-**UNPROVEN is a result, and it never closes a gate.** Three outcomes look alike in a report and are
+**UNPROVEN is a result, and it is never a pass.** Three outcomes look alike in a report and are
 not: it works, it is broken, and *nobody could tell*. The third one gets written down with that word,
 in the report, next to what it was about. The harness says it too, in its own vocabulary — a refusal,
 `NOT RUN`, `NOT PROVEN`, `UNPROVEN` — and none of those is a pass. What produces one: a selector that
@@ -176,8 +176,9 @@ reads them. Stop **at once**, and only, when:
    tested.
 3. **Leaving the agreed ground** — what setup agreed on (§2.1, "what already exists"): creating or
    deleting a device, building or starting a server, downloading and running something, pointing at
-   a server that is not the agreed test server, or any irreversible action on data the campaign did
-   not create. Ask first.
+   a server that is not the agreed test server, **changing the build configuration or a device
+   setting** (a new build type, a cleartext exception, a system setting), or any irreversible action
+   on data the campaign did not create. Ask first.
 4. **Calibration, once per campaign** — after the **first P1-or-worse finding**, show it and
    confirm the severity and the fix mode match what the human expects. Then carry on uninterrupted.
 
@@ -586,7 +587,7 @@ statistics, visited or derived lists — and compare them after the clean-up.
 Know which of your product's destructive actions are **irreversible** — no trash, no undo, no
 server-side copy — and say so in the plan; those are tested last, and only on fixtures.
 
-### R11 — The agent never types credentials
+### R11 — The agent never types real credentials
 
 Sessions are injected, never typed. The skill cannot ship this — every app stores its session its
 own way — so the setup gate builds it. It is two questions.
@@ -733,7 +734,7 @@ sense here: one line in `SKILL-FRICTION.md`, in the campaign's docs folder, **wh
 reconstructed at the end. Each line carries a tag — **GUESS**, **FALSE-ASSUMPTION**, **TOOL** or
 **NONSENSE** — then where in the skill (`SKILL.md` R6, `ui.py tap`), what happened, and what you did
 instead. The file's first line names the skill version the campaign started with (its commit, when
-the skill is a git checkout: `git -C ~/.claude/skills/qa-campaign rev-parse --short HEAD`, and
+the skill is a git checkout: `git -C <the folder this file is in> rev-parse --short HEAD`, and
 `git -C … log --oneline <that>..HEAD` at the end lists what changed under you; "none — copied install"
 when it is not a checkout). Don't edit the skill from inside a campaign; work around it in the
 project and log the line. Most rules in this file after the first campaign came from lines like
@@ -1046,9 +1047,9 @@ one shows:
    pull-to-refresh at all (measured). A test proves the function; only the device proves the path.
 6. **Open the screenshot of every screen you are about to call verified**, and write down what you
    see — cut off, overlapping, crowded, unlabeled, or fine — in the report's EYE table (R5).
-7. Finish that same file as the run report, in the shape of `templates/run-report.md`, with the
+7. Clean up fixtures (R10) and verify through the API — before the report, which has a row for it.
+8. Finish that same file as the run report, in the shape of `templates/run-report.md`, with the
    finding table, and link it from the log in `CAMPAIGN.md`.
-8. Clean up fixtures (R10) and verify through the API.
 9. Commit if the setup answer allows it; otherwise say what is left uncommitted. Then, and only
    then, the next process — and when the campaign stops here, `ui.py release`, so a campaign taking
    turns on the same device isn't refused.
@@ -1097,6 +1098,22 @@ back to you, not into the report; what it cannot settle goes to the queue (R2).
 
 ---
 
+### 2.4 Closing the campaign
+
+When the last gate closes, in this order — each is already a rule; this is where they are executed:
+
+1. **Fixtures gone, counts compared** (R10): no `QA_` record left on any account, and each account's
+   counts are what they were before the first process.
+2. **The queue, put to the human** in its two groups (R2), with whatever is still **unproven** in it
+   as itself.
+3. **The close-out** in `CAMPAIGN.md` §9: totals, the biggest finding per process, the final full
+   suite (R13), what remains open and why.
+4. **The friction log** (R12): offer it upstream, without the project in it, and record the issue's
+   link or why it was not sent.
+5. **`Status: closed <date> at <commit>`** at the top of `CAMPAIGN.md` — a later campaign starts from
+   that commit.
+6. **`ui.py release`**, so the device is free for the next campaign.
+
 ## 3. The harness
 
 The rules above are platform-independent. A **harness** is what makes them executable on one
@@ -1114,7 +1131,7 @@ pixels — it is text, it can be asserted on, and it is cheap.
 
 ```bash
 # Run it from the project root, so it finds qa.config.json:
-#   python3 ~/.claude/skills/qa-campaign/harness/android/ui.py --device phone dump
+#   python3 <the folder this file is in>/harness/android/ui.py --device phone dump
 ui.py --device phone dump               # the screen as text; device by alias (or --serial / ANDROID_SERIAL)
 ui.py tap "text=Add item"               # selectors: text= text~= desc= desc~= id= id~= class= class~=
                                         #            clickable= scrollable= enabled= checked= selected=

@@ -86,6 +86,8 @@ branch at the end.
   method is not — but web, iOS or desktop each need a harness written to a documented contract.
 - **A test server and test accounts** where data can be created and deleted. Never a production account.
 - **A branch of its own.** It changes your source: fixes, tests, and deliberate breaks that it undoes.
+- **A build whose tests run from the command line.** Optional: `rg` for the absence sweeps (there is a
+  `perl` fallback) and `gh` to send the friction log upstream.
 
 ## Before you run it
 
@@ -123,6 +125,9 @@ In the project you want to test:
 cp ~/.claude/skills/qa-campaign/qa.config.example.json qa.config.json
 printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore
 ```
+
+Commit that `.gitignore` change before you start: the campaign begins from a clean tree and stops to
+ask when it finds one that isn't.
 
 Fill in `qa.config.json` — the scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
 everything else in there documents the plan for you and for the agent. Then, in Claude Code, **in that

@@ -24,7 +24,19 @@ This file is the review as it was written. Since then (PRs #23–#27):
   overwrote the kept original after a killed run; `launch --pkg`; a list-form `packagePrefix` with no
   `android.package`; chunked bodies in `fake_server.py`; a `%` in `net.sh reach`'s path.
 
-Still open: harness 4–9, skill 3–14, docs 1–8.
+- **Harness 3–8** — done (#28): only a cached *test* task is NOT RUN; a crash-only file is no longer
+  called green; the remaining tracebacks; the host check and `--help` in `net.sh`; `state --expect`.
+- **Skill 3, 6, 9, 10, 11, 13** — done (#29): UNPROVEN "is never a pass"; build configuration and
+  device settings in stop 3; §2.4 close-out; "the folder this file is in"; R11's title; clean-up
+  before the report.
+- **Docs 1, 4, 6, 8** — done (#29): commit the `.gitignore` line; the example's "scrubbed" sentence
+  and a note on its shape; prerequisites.
+
+Still open, each a decision about how the skill should work rather than a correction:
+harness 9 (tests that need a stub with state); skill 4 (renumbering setup), 5 (length), 7 (when the
+human is asked), 8 (which rule applies when a gate depends on the human), 12, 14 (severity table);
+docs 2 (scope question for a repeat campaign), 3 (where `npx skills add` installs), 5 (the "11 P2s"
+count), 7 (four products or five).
 
 ## (a) Fixed
 

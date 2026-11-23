@@ -34,5 +34,9 @@ mix rule did not exist in the earlier run.
 
 ## Scrubbed
 
-The server's hostname and LAN address, and the serial of a work phone that is on the never-touch list.
-Nothing else was edited — including the parts where the campaign says what it could not prove.
+The server's hostname, and the serial of a work phone that is on the never-touch list. A private-range
+LAN address is still in `CAMPAIGN.md`. Nothing else was edited — including the parts where the campaign
+says what it could not prove.
+
+It was a second campaign over the same app, scoped to what the new rules could see, so its files are
+shorter than the templates: no `Origin` column, and sections 2–5 of `CAMPAIGN.md` folded into one line.
