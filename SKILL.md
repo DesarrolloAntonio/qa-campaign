@@ -979,6 +979,17 @@ tools take four, and a second round gets skipped:
 10. **Decide how deep offline goes** — none, short or full (R1) — from the clues in the code, and
     write it at the top of `CAMPAIGN.md` with the clue that decided it. It sets whether the
     campaign has an offline gate at all.
+11. **Before setup closes, build what every process stands on.** The rules are in §1; this is where
+    they are executed, and each is a line in the setup report (`00-setup.md`):
+    - **the session** (R11) — look at **whose install is on the device** before writing anything into
+      it; build the injection and name it in `session.injectCommand`; **cold-start once** and check
+      the app is still signed in; put the one real, typed login in the first queue round;
+    - **one fixture, end to end** (R10) — create it, read it back through the API, and check the
+      `QA_` marker survived in the field the clean-up will search;
+    - **the friction log** (R12) — create `SKILL-FRICTION.md` in the campaign's docs folder now, so a
+      line can be written when it happens, not reconstructed at the end;
+    - **the sweep candidates that need a signed-in app** (step 9) are driven now, not before: a
+      candidate nobody could drive is `unproven`, not discarded.
 
 ### 2.2 Per process
 
