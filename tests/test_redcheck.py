@@ -107,6 +107,29 @@ class RedCheck(Case):
         self.assertEqual(2, r.returncode)
         self.assertSaid(r, "FROM-CACHE")
 
+    def test_a_cached_compile_task_does_not_cancel_a_test_that_ran(self):
+        # Only the TEST task coming from the cache restores a report; a cached compile step beside a test
+        # that ran and wrote a fresh one was a false NOT RUN.
+        r = self.run_redcheck("--expect", "red", "--test", "FooTest", "--",
+                             self.runner({"build/test-results/test/TEST-a.xml": junit(FAIL)}, code=1,
+                                         output="> Task :feature:ui:compileDebugUnitTestKotlin FROM-CACHE"))
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "RED")
+
+    def test_a_command_that_does_not_exist_is_not_run_not_a_traceback(self):
+        r = self.run_redcheck("--expect", "red", "--", os.path.join(self.dir, "no-such-gradlew"))
+        self.assertEqual(2, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "NOT RUN")
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_a_crash_in_the_other_report_file_is_not_called_green(self):
+        r = self.run_redcheck("--expect", "red", "--test", "FooTest", "--",
+                             self.runner({"a/build/test-results/test/TEST-a.xml": junit(FAIL),
+                                          "b/build/test-results/test/TEST-b.xml": junit(CRASH)}, code=1))
+        self.assertEqual(2, r.returncode)
+        self.assertSaid(r, "a crash in")
+        self.assertNotIn("green in", r.stdout + r.stderr)
+
     def test_a_filter_that_matches_two_classes_is_not_run(self):
         r = self.run_redcheck("--expect", "green", "--test", "FooTest", "--",
                              self.runner({"a/build/test-results/test/TEST-a.xml": junit(PASS, "com.a.FooTest"),

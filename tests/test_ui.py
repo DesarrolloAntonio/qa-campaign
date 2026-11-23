@@ -455,6 +455,12 @@ class Typing(Case):
         self.assertEqual(["shell input text 100%", "shell input text sure"],
                          [c for c in self.adb_calls() if "input text" in c])
 
+    def test_a_password_is_not_echoed_with_no_check_either(self):
+        r = self.run_ui("type", "QAsecret", "--no-check",
+                        STUB_DUMP=self.with_dump(one_field("••••••••", password="true")))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertNotIn("QAsecret", r.stdout + r.stderr)
+
     def test_into_a_field_that_is_not_there_types_nothing(self):
         # Measured: a refused tap, then `type` wrote into whichever field still had focus.
         r = self.run_ui("type", "A_R8_Place", "--into", "text=Title", STUB_DUMP=self.with_dump(one_field("")))
@@ -475,6 +481,16 @@ CHECKLIST = screen(raw("android.view.View", (0, 300, 1080, 420), children=(
     raw("android.widget.CheckBox", (20, 320, 100, 400), checkable="true", clickable="true")
     + raw("android.widget.TextView", (120, 320, 600, 400), text="item one")
     + raw("android.widget.CheckBox", (980, 320, 1060, 400), checkable="true", clickable="true"))))
+
+
+class SwitchState(Case):
+    def test_expect_makes_state_a_gate(self):
+        # `state` exits 0 for ON and for off: a script could read it, not gate on it.
+        dump = self.with_dump(REMEMBER_ME)
+        self.assertEqual(0, self.run_ui("state", "text=Remember me", "--expect", "off", STUB_DUMP=dump).returncode)
+        r = self.run_ui("state", "text=Remember me", "--expect", "on", STUB_DUMP=dump)
+        self.assertEqual(1, r.returncode, r.stdout + r.stderr)
+        self.assertSaid(r, "expected ON")
 
 
 class DumpLabels(Case):

@@ -129,6 +129,26 @@ class FakeServer(Case):
         self.assertIn("POST /api/pins", printed)
         self.assertNotIn("4321", printed)
 
+    def refused_at_start(self, *args):
+        r = subprocess.run(["python3", FAKE_SERVER, *args], capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertNotIn("Traceback", r.stderr)
+        return r.stderr
+
+    def test_a_port_already_taken_says_so(self):
+        with socket.socket() as taken:
+            taken.bind(("127.0.0.1", 0))
+            taken.listen()
+            self.assertIn("in use", self.refused_at_start("--port", str(taken.getsockname()[1])))
+
+    def test_a_routes_file_that_is_not_what_it_should_be_says_so(self):
+        routes = os.path.join(self.dir, "routes.json")
+        for text, said in (("{not json", "not valid JSON"), ("[1, 2]", "must be an object"),
+                           ('{"GET /x": 200}', "must be an object")):
+            with open(routes, "w") as fh:
+                fh.write(text)
+            self.assertIn(said, self.refused_at_start("--port", str(free_port()), "--routes", routes), text)
+
     def test_a_header_with_no_colon_is_refused_at_start(self):
         # It used to start, and then drop every connection: the app saw a network failure, not the
         # status the test asked for.
