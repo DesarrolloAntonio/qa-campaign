@@ -30,7 +30,19 @@ on the allow-list.
     STUB_IME                    `dumpsys window InputMethod` output
     STUB_DATA                   a folder served as the app's data folder to `exec-out run-as <pkg> cat <path>`
     STUB_CRASHES                what `logcat -b crash -d` prints; unset = an empty crash buffer
+
+A device also CHANGES, and some commands only mean something when it does. What the harness changed is
+kept in a file beside this stub, so the next call sees it:
+
+    STUB_ROTATION               the rotation at the start (0-3); `wm user-rotation lock N` changes it…
+    STUB_ROTATION_STUCK=1       …unless the device ignores the lock
+    STUB_PID                    the app's pid; gone after `am kill` when STUB_AM_KILL=works, or after
+                                `run-as <pkg> kill -9` when STUB_KILL9=works
+    STUB_IME                    the keyboard window; a BACK hides it
+    STUB_DUMP_AFTER_BACK        the tree served once a BACK was sent (the sheet went with the keyboard)
+    `adb emu resize-display N`  switches `wm size` / `wm density` to preset N (0 phone, 1 unfolded, 2 tablet)
 """
+import json
 import os
 import sys
 
@@ -53,6 +65,23 @@ def err(text, code=1):
 
 env = os.environ.get
 serial = env("STUB_SERIAL", "emulator-5554")
+STATE = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "device_state.json")
+PRESETS = {"0": ("1080x2400", "420"), "1": ("2208x1840", "420"), "2": ("2560x1600", "320")}
+
+
+def state():
+    try:
+        with open(STATE) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def remember(**changes):
+    now = state()
+    now.update(changes)
+    with open(STATE, "w") as fh:
+        json.dump(now, fh)
 
 if not args:
     out("Android Debug Bridge version 1.0.41 (stub)")
@@ -64,6 +93,8 @@ if args[0] == "devices":
     out(f"List of devices attached\n{serial}\tdevice\n")
 if args[0] == "emu":
     answer = env("STUB_EMU", "OK")
+    if args[1:2] == ["resize-display"] and answer == "OK":
+        remember(preset=args[2])
     out(answer) if answer else out()
 if args[0] in ("reverse", "forward", "wait-for-device", "install", "uninstall", "push", "pull"):
     out()
@@ -126,11 +157,23 @@ if cmd.startswith("dumpsys window displays"):
             "Display: mDisplayId=0\n  init=1080x2400 420dpi cur=1080x2400 app=1080x2400\n"
             "Display: mDisplayId=1\n  init=1920x1200 240dpi cur=1920x1200 app=1920x1200"))
 if cmd.startswith("dumpsys window InputMethod"):
-    out(env("STUB_IME", "isVisible=false"))
+    out("isVisible=false" if state().get("back") else env("STUB_IME", "isVisible=false"))
+if cmd == "dumpsys window":
+    out(f"  mCurrentRotation=ROTATION_{90 * int(state().get('rotation', env('STUB_ROTATION', '0')))}")
+if cmd.startswith("wm user-rotation lock") and env("STUB_ROTATION_STUCK") != "1":
+    remember(rotation=int(cmd.split()[-1]))
+if cmd.startswith("input keyevent KEYCODE_BACK"):
+    remember(back=True)
+if cmd.startswith("am kill") and env("STUB_AM_KILL") == "works":
+    remember(dead=True)
+if cmd.startswith("run-as ") and " kill -9 " in cmd and env("STUB_KILL9") == "works":
+    remember(dead=True)
 if cmd.startswith("wm density"):
-    out(env("STUB_DENSITY", "Physical density: 420"))
+    preset = PRESETS.get(state().get("preset"))
+    out(f"Physical density: {preset[1]}" if preset else env("STUB_DENSITY", "Physical density: 420"))
 if cmd.startswith("wm size"):
-    out(env("STUB_WM_SIZE", "Physical size: 1080x2400"))
+    preset = PRESETS.get(state().get("preset"))
+    out(f"Physical size: {preset[0]}" if preset else env("STUB_WM_SIZE", "Physical size: 1080x2400"))
 if cmd.startswith("pm list packages"):
     prefix = cmd.split()[-1] if len(cmd.split()) > 3 else ""
     installed = [p for p in env("STUB_PACKAGES", "com.example.app").split(",") if p.startswith(prefix)]
@@ -144,11 +187,13 @@ if cmd.startswith("uiautomator dump"):
     out("ERROR: could not get idle state.")
 if cmd.startswith("cat ") and cmd.endswith("qa_ui.xml"):
     asked = open(WHICH_DUMP).read() if os.path.isfile(WHICH_DUMP) else ""
+    if state().get("back") and env("STUB_DUMP_AFTER_BACK"):
+        asked = env("STUB_DUMP_AFTER_BACK")
     out(open(asked or env("STUB_DUMP")).read()) if env("STUB_DUMP") else out("", 1)
 if cmd.startswith("run-as ") and cmd.endswith(" id"):
     if env("STUB_RUNAS", "yes") == "yes":
         out("uid=10123(u0_a123) gid=10123(u0_a123)")
     err("run-as: Package 'com.example.app' is not debuggable")
 if cmd.startswith("pidof"):
-    out(env("STUB_PID", ""))
+    out("" if state().get("dead") else env("STUB_PID", ""))
 out()
