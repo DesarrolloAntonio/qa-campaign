@@ -1,6 +1,6 @@
 # Setup notes
 
-The detail behind steps 5 and 6 of `SKILL.md` §2.1. Read it when you reach them: the rules are there,
+The detail behind steps 6 and 8 of `SKILL.md` §2.1. Read it when you reach them: the rules are there,
 the reasons and the traps are here.
 
 ## Devices

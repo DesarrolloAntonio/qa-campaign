@@ -1,7 +1,7 @@
 # Control inventory — `<module>` (`<platform>`)
 
 > Model for the first section of each process's file, `NN-<area>.md` — not a file to copy blank
-> into the campaign folder (SKILL.md §2.1 step 4). Delete this paragraph when you use it.
+> into the campaign folder (SKILL.md §2.1 step 5). Delete this paragraph when you use it.
 
 > Derived from the UI code and the manifest/router on `<date>`, build `<commit>`. This is the list
 > of things to test (R3). It is blind to what the module is MISSING — that is what the absence

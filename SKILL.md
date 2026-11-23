@@ -34,7 +34,7 @@ trash, a shared note or a server quirk, read it as *"the kind of thing"*, and su
 
 | When | Read |
 |---|---|
-| Setting a campaign up | §2.1, then [`references/setup-notes.md`](references/setup-notes.md) at steps 5 and 6 |
+| Setting a campaign up | §2.1, then [`references/setup-notes.md`](references/setup-notes.md) at steps 6 and 8 |
 | Filling in the plan, a process report, an inventory | [`templates/`](templates/) |
 | Asking the server what is true | [`adapters/README.md`](adapters/README.md) |
 | Driving Android, or something makes no sense | §3, [`harness/README.md`](harness/README.md), [`harness/android/GOTCHAS.md`](harness/android/GOTCHAS.md) |
@@ -212,7 +212,7 @@ product **lacks**. That is R4.
 ### R4 — The absence sweeps (what the product does NOT have)
 
 R3 is **structurally blind to missing features**: a feature that doesn't exist leaves nothing to
-enumerate. So run five sweeps — **once, for the whole product, at setup** (§2.1 step 9; a candidate that needs a
+enumerate. So run five sweeps — **once, for the whole product, at setup** (§2.1 step 10; a candidate that needs a
 signed-in app is driven at step 11), filing each finding
 under its module. *The whole product* is the app under test plus the shared modules it depends on —
 in a repository of several standalone apps, not the whole repository (a sweep run repo-wide returned
@@ -864,21 +864,21 @@ signing key present (`apksigner verify --print-certs` on the last published arte
 local key), and the release variant building and launching once — and **what QA work the repo already
 has** — test
 plans, an earlier campaign's reports, QA scripts, a client for the server, test credentials kept in
-some file (steps 3 and 6). "Before anything else" in step 1 means before *changing* anything, not
+some file (steps 3 and 8). "Before anything else" in step 1 means before *changing* anything, not
 before looking.
 
-Then the questions of steps 1, 3 and 5 go to the human **in one round of at most four** — question
+Then the questions of steps 1, 3 and 6 go to the human **in one round of at most four** — question
 tools take four, and a second round gets skipped:
 
-1. **Fix mode** (step 1) — and, **when an earlier campaign here is closed, the scope of this one**:
+- **Fix mode** (step 1) — and, **when an earlier campaign here is closed, the scope of this one**:
    everything again, what changed since it closed, or only what the rules added since can see — each
    with what it costs. The answer narrows what is driven, never the absence sweeps;
-2. **Commits**, and where the campaign docs live (step 1);
-3. **Devices** — propose one from what you saw, and name the ones that are busy or off-limits
-   (step 5); **which app**, when the repo holds several; and **which build users get** (a store
+- **Commits**, and where the campaign docs live (step 1);
+- **Devices** — propose one from what you saw, and name the ones that are busy or off-limits
+   (step 6); **which app**, when the repo holds several; and **which build users get** (a store
    release, a flavor, or the debug build a device manager pushes), because that decides how findings
    are rated (§2.3);
-4. **Server and accounts** — which server, whether it holds real data, which account for each role
+- **Server and accounts** — which server, whether it holds real data, which account for each role
    (step 3). Test data defaults to *"only what the campaign creates, marked `QA_`, is touched"*;
    say so in the question, and the human corrects it only if something else must be protected. Name
    here too any **outbound channel that fires on its own** (R10) and ask for its off switch.
@@ -918,7 +918,7 @@ tools take four, and a second round gets skipped:
    out when they ask for it — and record that commit as **Build at start** in
    `CAMPAIGN.md`. Every gate's diff is then that process and nothing else.
 3. **Ask what already exists before building anything.** One question, four parts:
-   - **devices** — which emulators, simulators or phones are for testing (step 5);
+   - **devices** — which emulators, simulators or phones are for testing (step 6);
    - **a test server** — is there one already, at what address, and does it hold anyone's real
      data? (R10 says what to propose when there is none);
    - **test accounts** — which ones, and for which roles (R7);
@@ -935,7 +935,7 @@ tools take four, and a second round gets skipped:
    - defects it records as fixed are **re-checked, not re-reported**: still fixed, or a regression —
      and a regression is a finding;
    - scripts that work are reused once proven (R8): an existing client for the server becomes the
-     adapter (step 8) instead of being written again;
+     adapter (step 9) instead of being written again;
    - nothing of it is overwritten or moved. The campaign's docs go in their own folder, and the
      earlier ones stay the record of that campaign;
    - **what changed since it closed** — the commits since its closing commit (or its date, when it
@@ -949,13 +949,17 @@ tools take four, and a second round gets skipped:
      share with it (measured: a cleanup would have deleted a read-only note B shared with A, counted
      as A's leftover). Clean a record up only from the account that owns it. Reuse them when the seed
      script finds and reuses existing ones; otherwise ask before cleaning them up (R10).
-4. Copy `templates/CAMPAIGN.md` into the campaign's docs folder and fill in the process list. The
+4. **Decide how deep offline goes** — none, short or full (R1) — from the clues in the code, and
+   write it at the top of `CAMPAIGN.md` with the clue that decided it. It sets whether the
+   campaign has an offline gate at all.
+5. Copy `templates/CAMPAIGN.md` into the campaign's docs folder, write the answers of steps 1–4 at its
+   top, and fill in the process list. The
    other two templates are **models, not files to copy now**: each process writes **one file**,
    `NN-<area>.md` (`01-shell.md`, `02-bookmarks.md`), shaped like `templates/run-report.md`, with
    the process's inventory (`templates/inventory.md`) as its first section. Only an inventory too big
    to read inside the report gets its own `NN-<area>-inventory.md`. Never leave a blank template in
    the folder: it reads as a process that was never done.
-5. **Pick devices before creating any.** List what exists — `ui.py avds` shows every AVD with its
+6. **Pick devices before creating any.** List what exists — `ui.py avds` shows every AVD with its
    Android version and whether it is **already running**, read from the computer's processes
    without touching any emulator; `emulator -list-avds` and `adb devices` alone don't say which AVD
    is behind which running serial (measured: a campaign proposed an AVD as free that was another
@@ -970,27 +974,23 @@ tools take four, and a second round gets skipped:
    adb's**, and a monorepo has more than one app to pick from. Both, with the device-naming rules
    (AVD not serial, `-port`, `ANDROID_SERIAL` on raw adb and Gradle):
    **[`references/setup-notes.md`](references/setup-notes.md) §Devices**.
-6. Copy `qa.config.example.json` to `qa.config.json`. The scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
+7. Add the campaign's local files to the project's `.gitignore` **before creating any of them** — the skill's own `.gitignore` does not apply to your
+   repo: `printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore`.
+8. Copy `qa.config.example.json` to `qa.config.json`. The scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
    the rest (`server`, `session`, `fixtures`, `app`) documents the plan. **Secrets never go in it**:
    the adapter reads a separate `qa.credentials.json` (its shape: `adapters/README.md`).
 
    **Saying what that file is for, using one the project already has, and creating an empty one to
    fill in** — three notes that have each cost a round trip:
    **[`references/setup-notes.md`](references/setup-notes.md) §Credentials**.
-
-7. Add them to the project's `.gitignore` — the skill's own `.gitignore` does not apply to your
-   repo: `printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore`.
-8. Write the **API adapter** for the test server agreed in step 3 (see `adapters/README.md`). This
+9. Write the **API adapter** for the test server agreed in step 3 (see `adapters/README.md`). This
    is the only part the skill cannot give you: it's how the campaign asks the server what is true.
    Then check that **the app on the device reaches that same server** — `net.sh reach` (§3) — before
    setup closes: the computer reaching it says nothing about the device. Measured: setup closed with
    "the harness drives the app" while the app could not resolve the server's name, and it surfaced a
    gate later as "deleted notes that don't disappear".
-9. Run the five absence sweeps (R4) once, for the whole product, and file each finding under its
-   module — before writing any catalogue.
-10. **Decide how deep offline goes** — none, short or full (R1) — from the clues in the code, and
-    write it at the top of `CAMPAIGN.md` with the clue that decided it. It sets whether the
-    campaign has an offline gate at all.
+10. Run the five absence sweeps (R4) once, for the whole product, and file each finding under its
+    module — before writing any catalogue.
 11. **Before setup closes, build what every process stands on.** The rules are in §1; this is where
     they are executed, and each is a line in the setup report (`00-setup.md`):
     - **the session** (R11) — look at **whose install is on the device** before writing anything into
@@ -1000,7 +1000,7 @@ tools take four, and a second round gets skipped:
       `QA_` marker survived in the field the clean-up will search;
     - **the friction log** (R12) — create `SKILL-FRICTION.md` in the campaign's docs folder now, so a
       line can be written when it happens, not reconstructed at the end;
-    - **the sweep candidates that need a signed-in app** (step 9) are driven now, not before: a
+    - **the sweep candidates that need a signed-in app** (step 10) are driven now, not before: a
       candidate nobody could drive is `unproven`, not discarded.
 
 ### 2.2 Per process
@@ -1019,7 +1019,7 @@ one shows:
 - **the account's counts** (R10), to compare after the clean-up.
 
 1. **Inventory** the controls and entry points of the area under test (R3) — the first section of
-   the process's file, `NN-<area>.md` (§2.1 step 4), in the shape of `templates/inventory.md`.
+   the process's file, `NN-<area>.md` (§2.1 step 5), in the shape of `templates/inventory.md`.
 2. Drive them with the harness, asserting against the oracles (R5). **For every edit form, once:
    change the record elsewhere first** — through the API, or the web client — **then save from the
    app**, and check the other change is still there (or that the app says it conflicts). Forms that

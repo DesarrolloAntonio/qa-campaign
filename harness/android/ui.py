@@ -1964,7 +1964,7 @@ def main():
         raise SystemExit(
             f"no qa.config.json found (looked from {os.getcwd()} upwards and in $QA_CONFIG), so `{a.cmd}` would "
             "drive whatever device adb picks, with no package and no allow-list. Copy qa.config.example.json "
-            "into the project and fill it in (SKILL.md §2.1 step 6)."
+            "into the project and fill it in (SKILL.md §2.1 step 8)."
         )
     if CONFIG_PATH and not DEVICES and a.cmd not in ("avds", "serial", "release"):
         print(f"note: no `devices` allow-list in {CONFIG_PATH}: driving whatever adb picks", file=sys.stderr)
