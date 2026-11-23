@@ -127,6 +127,10 @@ row named):
 A flat checklist of N scenarios × M devices is never executed. A short list of gates with a hard
 stop at each one is.
 
+Two cases look alike, and one question tells them apart: **can the process be driven at all without
+the answer?** No — nothing to drive it on, or as — is the first; yes, and one criterion is missing, is
+the second.
+
 **A gate waiting on the human** — a device to create, an account to fill in — doesn't stop reading.
 The next process may be **prepared from the code**: its inventory, its suspects. Nothing is driven,
 fixed or committed for it until the gate closes, and what was prepared is re-read then, because the
@@ -161,6 +165,10 @@ row tire the human, who stops reading them halfway (measured). Two groups, in th
    suspect to chase — one at a time;
 2. everything else — "fix or accept" on a small finding, a wording, a display format — in **one
    list**, each with your recommendation and why in one line, answered in one go.
+
+**When.** At the close of every gate, show the queue as it stands — and **do not wait** for the
+answers: carry on with the next process, and reopen what an answer contradicts. Only the four stops
+below wait for the human.
 
 **Don't stop for each finding.** A campaign that asks after every bug turns the human into the
 bottleneck and gets abandoned; findings go into the run report and the gate is where the human
@@ -204,7 +212,8 @@ product **lacks**. That is R4.
 ### R4 — The absence sweeps (what the product does NOT have)
 
 R3 is **structurally blind to missing features**: a feature that doesn't exist leaves nothing to
-enumerate. So run five sweeps — **once, for the whole product, at setup** (§2.1), filing each finding
+enumerate. So run five sweeps — **once, for the whole product, at setup** (§2.1 step 9; a candidate that needs a
+signed-in app is driven at step 11), filing each finding
 under its module. *The whole product* is the app under test plus the shared modules it depends on —
 in a repository of several standalone apps, not the whole repository (a sweep run repo-wide returned
 391 hits, half of them another app's; audit). Before writing a module's catalogue, re-read that module's findings; re-run the
@@ -861,7 +870,9 @@ before looking.
 Then the questions of steps 1, 3 and 5 go to the human **in one round of at most four** — question
 tools take four, and a second round gets skipped:
 
-1. **Fix mode** (step 1);
+1. **Fix mode** (step 1) — and, **when an earlier campaign here is closed, the scope of this one**:
+   everything again, what changed since it closed, or only what the rules added since can see — each
+   with what it costs. The answer narrows what is driven, never the absence sweeps;
 2. **Commits**, and where the campaign docs live (step 1);
 3. **Devices** — propose one from what you saw, and name the ones that are busy or off-limits
    (step 5); **which app**, when the repo holds several; and **which build users get** (a store
@@ -1050,8 +1061,8 @@ one shows:
 7. Clean up fixtures (R10) and verify through the API — before the report, which has a row for it.
 8. Finish that same file as the run report, in the shape of `templates/run-report.md`, with the
    finding table, and link it from the log in `CAMPAIGN.md`.
-9. Commit if the setup answer allows it; otherwise say what is left uncommitted. Then, and only
-   then, the next process — and when the campaign stops here, `ui.py release`, so a campaign taking
+9. Commit if the setup answer allows it; otherwise say what is left uncommitted. **Show the human the
+   queue as it stands** (R2) and carry on without waiting. Then, and only then, the next process — and when the campaign stops here, `ui.py release`, so a campaign taking
    turns on the same device isn't refused.
 
 ### 2.3 What a finding looks like
@@ -1061,14 +1072,14 @@ file:line, and its status. Severity, the same everywhere in the campaign:
 
 | | |
 |---|---|
-| **P0** | data loss, **a security hole** — a password, a session token or private data readable by someone or something that shouldn't have it (another app, a backup, a log) — or a state the user cannot recover from |
-| **P1** | the user is lied to (told "saved" when it wasn't), or blocked with no workaround |
+| **P0** | data loss — including a state that only clearing the app's data gets out of — or **a security hole**: a password, a session token or private data readable by someone or something that shouldn't have it (another app, a backup) |
+| **P0** | a secret in the system log, **where anyone but the developer collects logs** from the devices users have — a company's device management, bug-report or crash tools |
+| **P1** | a secret in the system log on a plain phone, where reading it needs adb or a privileged app |
+| **P1** | the user is lied to (told "saved" when it wasn't), or blocked with no workaround while their data is intact |
 | **P1** | it stops the release: a store or fleet requirement the build does not meet (a missing privacy policy, a dead "Help" link the review checks, a version below what is already published). It blocks everyone, and there is no workaround |
 | **P2** | a workaround exists, or it is cosmetic. Harness `a11y` warnings (small target, unnamed icon) are P2 unless they block a flow. Hardening that exposes nothing by itself (a too-wide file-sharing path, a session not revoked on the server) is P2 |
 
-**A secret in the system log** is **P0** when anyone but the developer collects logs from the devices
-users have — a company's device management, bug-report or crash tools — and **P1** otherwise: on a
-plain phone the log needs adb or a privileged app. Say which case applies and why.
+For **a secret in the system log**, say which of its two rows applies and why.
 
 **Rate for the builds users get** — and **ask at setup which build that is**: a store release, a
 flavor, or, in a managed fleet, the **debug** build pushed by the device manager (measured: an app
