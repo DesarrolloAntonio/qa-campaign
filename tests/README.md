@@ -60,6 +60,9 @@ What they pin down is the **contract**, not the implementation:
 | answer with a sentence, not a traceback, to a command, a port, a routes file or a config that is wrong | a traceback reads like a bug in the harness |
 | keep a host that is not a host out of the device's shell, and print usage with no device | the host is part of a command the device parses; `--help` said "no device reachable" |
 | let a script gate on a switch (`state --expect`), and never echo a password with `--no-check` | `state` exited 0 either way; `--no-check` printed what it typed into a password field |
+| read a rotation and a resize back from the window manager, and fail when the device did not change | a lock the emulator reverted was reported as a rotation; a resize as done 5 s before it was |
+| call a process dead only when its pid is gone — `am kill`, then `kill -9` through `run-as` | `am kill` said nothing and left the process alive (measured on API 37.1) |
+| send BACK for a keyboard only: not with none up, not for a stylus pill, and fail when the screen went with it | a BACK for the pill closed the app; one BACK closed the keyboard and the sheet holding the field |
 | send a `%` in the probe's path as written | the path sits in a `printf` format, and `/a%20b` reached the server mangled |
 
 Adding a test: put it beside the others, use `harness.Case` (it builds the workspace and the stub), and

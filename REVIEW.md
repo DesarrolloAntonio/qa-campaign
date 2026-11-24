@@ -32,11 +32,18 @@ This file is the review as it was written. Since then (PRs #23–#27):
 - **Docs 1, 4, 6, 8** — done (#29): commit the `.gitignore` line; the example's "scrubbed" sentence
   and a note on its shape; prerequisites.
 
-Still open, each a decision about how the skill should work rather than a correction:
-harness 9 (tests that need a stub with state); skill 4 (renumbering setup), 5 (length), 7 (when the
-human is asked), 8 (which rule applies when a gate depends on the human), 12, 14 (severity table);
-docs 2 (scope question for a repeat campaign), 3 (where `npx skills add` installs), 5 (the "11 P2s"
-count), 7 (four products or five).
+- **Skill 7, 8, 12, 14 and docs 2** — decided and done (#30): the queue is shown at every gate and
+  nothing waits but the four stops; one question tells the two "depends on the human" cases apart; a
+  secret in the log is two rows of the severity table; a repeat campaign asks its scope.
+- **Skill 4** — done (#31): setup renumbered into the order it can be done.
+- **Skill 5** — partly (#32): R11's mechanisms moved to `references/session-injection.md`.
+- **Harness 9** — mostly (#33): the stub keeps state, with tests for `rotate`, `size`, `kill` and
+  `hide-keyboard`. Not covered: `installed --apk`, `shot` on a second display, `reach` over https,
+  `slow`/`full` succeeding.
+
+Still open, waiting on facts only the author has: docs 3 (where `npx skills add` installs — here
+`~/.claude/skills/qa-campaign` is a symlink to the checkout), 5 (the "11 P2s" count), 7 (four products
+or five).
 
 ## (a) Fixed
 

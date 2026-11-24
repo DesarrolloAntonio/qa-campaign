@@ -493,6 +493,90 @@ class SwitchState(Case):
         self.assertSaid(r, "expected ON")
 
 
+KEYBOARD = "isVisible=true\n  touchable region=SkRegion((0,1500,1080,2400))"
+PILL = "isVisible=true\n  touchable region=SkRegion((900,1000,1080,1400))"
+
+
+class DeviceThatChanges(Case):
+    """R8 and R9: a command that changes the device says what the device then did, not what was asked."""
+
+    def sent(self, what):
+        return [c for c in self.adb_calls() if what in c]
+
+    def test_a_rotation_is_read_back_from_the_window_manager(self):
+        r = self.run_ui("rotate", "1")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertSaid(r, "rotated 0 → 1")
+
+    def test_the_orientation_it_is_already_in_is_a_success(self):
+        r = self.run_ui("rotate", "1", STUB_ROTATION=1)
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertSaid(r, "already at rotation 1")
+
+    def test_a_screen_that_did_not_rotate_is_not_a_rotation(self):
+        r = self.run_ui("rotate", "1", STUB_ROTATION_STUCK=1)
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertSaid(r, "did NOT rotate")
+        self.assertEqual(2, len(self.sent("wm user-rotation lock 1")), "the lock is re-issued once, then it gives up")
+
+    def test_a_resize_is_read_back_and_says_the_density_moved(self):
+        r = self.run_ui("size", "tablet")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertSaid(r, "size tablet: 2560×1600 @ 320 dpi")
+        self.assertSaid(r, "density changed 420 → 320")
+
+    def test_an_emulator_with_no_presets_is_not_resized(self):
+        r = self.run_ui("size", "tablet", STUB_EMU="KO: unknown command")
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertSaid(r, "refused")
+
+    def test_a_process_am_kill_ended_is_killed(self):
+        r = self.run_ui("kill", STUB_PID=4242, STUB_AM_KILL="works")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertSaid(r, "killed com.example.app (pid 4242, am kill)")
+        self.assertEqual([], self.sent("kill -9"))
+
+    def test_a_process_am_kill_left_alive_is_killed_through_run_as(self):
+        # Measured on API 37.1: `am kill` said nothing and the pid was the same before and after.
+        r = self.run_ui("kill", STUB_PID=4242, STUB_KILL9="works")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertSaid(r, "kill -9 through run-as")
+
+    def test_a_process_nothing_killed_is_not_a_process_death(self):
+        r = self.run_ui("kill", STUB_PID=4242)
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertSaid(r, "STILL running")
+
+    def test_kill_with_nothing_running_has_nothing_to_restore(self):
+        r = self.run_ui("kill")
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertEqual([], self.sent("am kill"))
+
+    def test_no_back_is_sent_when_no_keyboard_is_up(self):
+        r = self.run_ui("hide-keyboard", STUB_DUMP=self.with_dump(one_field("x")))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual([], self.sent("KEYCODE_BACK"))
+
+    def test_no_back_is_sent_for_a_stylus_pill(self):
+        # Measured: the pill is a visible input-method window that does not take BACK; the BACK closed the app.
+        r = self.run_ui("hide-keyboard", STUB_IME=PILL, STUB_DUMP=self.with_dump(one_field("x")))
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertEqual([], self.sent("KEYCODE_BACK"))
+
+    def test_a_keyboard_is_hidden_with_one_back(self):
+        r = self.run_ui("hide-keyboard", STUB_IME=KEYBOARD, STUB_DUMP=self.with_dump(one_field("x")))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertSaid(r, "keyboard hidden")
+        self.assertEqual(1, len(self.sent("KEYCODE_BACK")))
+
+    def test_a_back_that_took_the_screen_with_the_keyboard_fails(self):
+        # Measured: one BACK closed the keyboard AND the sheet holding the field.
+        r = self.run_ui("hide-keyboard", STUB_IME=KEYBOARD, STUB_DUMP=self.with_dump(one_field("x")),
+                        STUB_DUMP_AFTER_BACK=self.with_dump(TWO_ROWS, "after.xml"))
+        self.assertNotEqual(0, r.returncode, r.stdout)
+        self.assertSaid(r, "also closed what held the text field")
+
+
 class DumpLabels(Case):
     def test_a_neighbours_label_is_marked_as_a_neighbours(self):
         # Measured: both unlabeled checkboxes printed `off ("item one")`, as if the app named them so.
