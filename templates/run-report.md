@@ -1,6 +1,6 @@
 # `<NN>` — `<area>` · `<device>`
 
-> Model for the ONE file each process writes, `NN-<area>.md` (SKILL.md §2.1 step 4). Don't copy it
+> Model for the ONE file each process writes, `NN-<area>.md` (SKILL.md §2.1 step 5). Don't copy it
 > blank into the campaign folder: write it when the process starts, and delete these two lines.
 
 > Build `<commit>` · device `<alias>` (`<what it is>`) · account `<A>` · `<date>`. Screenshots in `<dir>`.
