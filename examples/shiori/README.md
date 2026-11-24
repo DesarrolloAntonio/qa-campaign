@@ -12,7 +12,7 @@ mix rule did not exist in the earlier run.
 |---|---|
 | Found | **1 P0, 2 P1** — all missed by the first campaign, all fixed with a test seen red |
 | The P0 | editing a bookmark **deleted the tags** someone had added elsewhere |
-| Deferred | 11 P2s, in the queue with a recommendation each |
+| Deferred | every P2 — queue items #2 to #11, with a recommendation each |
 | **Unproven** | 2 — written down as unproven rather than counted as passes |
 | Not covered | minimum-OS pass and the visitor role, by decision, said out loud |
 | Suite | 340 tests, one flaky, named as flaky |
