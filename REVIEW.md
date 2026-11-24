@@ -41,9 +41,14 @@ This file is the review as it was written. Since then (PRs #23–#27):
   `hide-keyboard`. Not covered: `installed --apk`, `shot` on a second display, `reach` over https,
   `slow`/`full` succeeding.
 
-Still open, waiting on facts only the author has: docs 3 (where `npx skills add` installs — here
-`~/.claude/skills/qa-campaign` is a symlink to the checkout), 5 (the "11 P2s" count), 7 (four products
-or five).
+- **Docs 1, 3, 5, 7** — closed (#34) by taking out what could not be checked: the README no longer has
+  the reader copy the config or edit `.gitignore` (setup does both, so neither the install path nor a
+  dirty tree matters); the example's summary points at queue items #2–#11 instead of a count; the
+  README names the same four products as `SKILL.md`.
+
+Nothing from this review is open. Not covered by tests: `installed --apk`, `shot` on a second
+display, `reach` over https, `slow`/`full` succeeding. `SKILL.md` is still long (1,168 lines): only
+R11's mechanisms were moved out.
 
 ## (a) Fixed
 

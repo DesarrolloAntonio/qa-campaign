@@ -119,23 +119,18 @@ Or by hand — one or the other, not both:
 git clone https://github.com/DesarrolloAntonio/qa-campaign ~/.claude/skills/qa-campaign
 ```
 
-In the project you want to test:
+Then, in Claude Code, **in the project you want to test**, type `/qa-campaign`. That is the whole entry
+point: there is no prompt to write, and nothing to copy first — start from a clean tree and let setup
+do it.
 
-```bash
-cp ~/.claude/skills/qa-campaign/qa.config.example.json qa.config.json
-printf 'qa.config.json\nqa.credentials.json\nqa-shots/\n' >> .gitignore
-```
+What setup writes for you, so don't prepare any of it:
 
-Commit that `.gitignore` change before you start: the campaign begins from a clean tree and stops to
-ask when it finds one that isn't.
-
-Fill in `qa.config.json` — the scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
-everything else in there documents the plan for you and for the agent. Then, in Claude Code, **in that
-project**, type `/qa-campaign`. That is the whole entry point: there is no prompt to write.
-
-Two things you do not have to prepare: the campaign writes its own `CAMPAIGN.md` (don't pre-copy the
-template — a blank one in the docs folder reads as a campaign that was never finished), and it writes
-the **credentials template** for you to fill in, if you don't have one yet.
+- **`qa.config.json`**, from the skill's `qa.config.example.json`, and the `.gitignore` lines that keep
+  it out of your repo. The scripts read `android.*`, `devices`, `managedDevices` and `campaign`;
+  everything else in there documents the plan for you and for the agent.
+- **`CAMPAIGN.md`** — don't pre-copy the template: a blank one in the docs folder reads as a campaign
+  that was never finished.
+- **the credentials template**, for you to fill in, if you don't have one yet.
 
 ### What it asks before it touches anything
 
@@ -302,13 +297,14 @@ crashes. *(Not tried yet: no campaign has run with ARTEMIS as its hands.)*
 
 ## Status
 
-Extracted from a production campaign and generalised, then run on four more products, and twice
+Extracted from a production campaign on a multiplatform client and generalised, then run on three more
+products — a bookmarks client, a travel log and a fleet terminal — and twice
 audited adversarially — the second time 106 findings, all applied or refuted with a reason (see the
 merged pull requests). The Android harness is used daily; the process applies to anything you can
 drive and query.
 
 The skill is a git checkout, so it moves: note the commit you started with —
-`git -C ~/.claude/skills/qa-campaign rev-parse --short HEAD`, which is what `CAMPAIGN.md` records as
+`git -C <the folder the skill is installed in> rev-parse --short HEAD`, which is what `CAMPAIGN.md` records as
 *Skill at start* — and don't pull in the middle of a campaign.
 
 **Issues and PRs welcome**, and most useful of all would be `harness/web/` or `harness/ios/`:
